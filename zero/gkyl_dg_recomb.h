@@ -18,7 +18,7 @@ enum gkyl_dg_recomb_type
   GKYL_RECOMB_C = 5,  // Carbon ions
   GKYL_RECOMB_N = 6,  // Nitrogen ions
   GKYL_RECOMB_O = 7,  // Oxygen ions
-  GKYL_RECOMB_AR = 17, // Argon ions
+  GKYL_RECOMB_AR = 8, // Argon ions
 };
 
 // Identifiers for self species to determine form of collision operator
