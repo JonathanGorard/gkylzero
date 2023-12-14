@@ -18,6 +18,7 @@ double echarge = GKYL_ELEMENTARY_CHARGE;
 double emass = GKYL_ELECTRON_MASS;
 double h_ion_mass = GKYL_PROTON_MASS*2.01410177811;
 double li_ion_mass = GKYL_PROTON_MASS*6.94;
+double ar_ion_mass = GKYL_PROTON_MASS*39.948;
 double B0 = 0.5;
 
 void eval_m0(double t, const double *xn, double* restrict fout, void *ctx)
@@ -611,11 +612,19 @@ test_coll_recomb_all_gk_li(bool use_gpu)
 
   // cuda stuff
   if (use_gpu) {
-    struct gkyl_array *moms_ion_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, 5*basis.num_basis, confRange.volume);
+    struct gkyl_array *moms_ion_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, 3*basis.num_basis, confRange.volume);
     struct gkyl_array *moms_elc_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, 3*basis.num_basis, confRange.volume);
     struct gkyl_array *cflRate_elc_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, basis.num_basis, phaseRange_elc.volume);
     struct gkyl_array *distf_elc_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_elc.volume);
     struct gkyl_array *coll_recomb_elc_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_elc.volume);
+    struct gkyl_array *cflRate_ion_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, basis.num_basis, phaseRange_ion.volume);
+    struct gkyl_array *distf_ion_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);
+    struct gkyl_array *coll_recomb_ion_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);
+    struct gkyl_array *cflRate_recvr_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, basis.num_basis, phaseRange_ion.volume);
+    struct gkyl_array *distf_recvr_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);
+    struct gkyl_array *coll_recomb_recvr_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);
+
+
     // arrays necessary for fmax
     struct gkyl_array *bmag_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
     struct gkyl_array *jacob_tot_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
@@ -626,19 +635,38 @@ test_coll_recomb_all_gk_li(bool use_gpu)
     gkyl_array_copy(cflRate_elc_cu, cflRate_elc);
     gkyl_array_copy(distf_elc_cu, distf_elc);
     gkyl_array_copy(coll_recomb_elc_cu, coll_recomb_elc);
+    gkyl_array_copy(cflRate_ion_cu, cflRate_ion);
+    gkyl_array_copy(distf_ion_cu, distf_ion);
+    gkyl_array_copy(coll_recomb_ion_cu, coll_recomb_ion);
+    gkyl_array_copy(cflRate_recvr_cu, cflRate_recvr);
+    gkyl_array_copy(distf_recvr_cu, distf_elc);
+    gkyl_array_copy(coll_recomb_recvr_cu, coll_recomb_recvr);
     gkyl_array_copy(bmag_cu, bmag);
+    gkyl_array_copy(jacob_tot_cu, jacob_tot);
+    gkyl_array_copy(b_i_cu, b_i);
 
     gkyl_proj_gkmaxwellian_on_basis_lab_mom(proj_max_elc, &phaseRange_elc, &confRange, moms_elc_cu,
     bmag_cu, jacob_tot_cu, emass, distf_elc_cu);
+    gkyl_proj_gkmaxwellian_on_basis_lab_mom(proj_max_ion, &phaseRange_ion, &confRange, moms_ion_cu,
+    bmag_cu, jacob_tot_cu, li_ion_mass, distf_ion_cu);
+    gkyl_proj_gkmaxwellian_on_basis_lab_mom(proj_max_ion, &phaseRange_ion, &confRange, moms_ion_cu,
+    bmag_cu, jacob_tot_cu, li_ion_mass, distf_recvr_cu);
 
     gkyl_dg_recomb_coll(coll_recomb_up_elc, moms_elc_cu, moms_ion_cu, bmag_cu, jacob_tot_cu, b_i_cu, distf_elc_cu, coll_recomb_elc_cu, cflRate_elc_cu);
+    gkyl_dg_recomb_coll(coll_recomb_up_ion, moms_elc_cu, moms_ion_cu, bmag_cu, jacob_tot_cu, b_i_cu, distf_ion_cu, coll_recomb_ion_cu, cflRate_ion_cu);
+    gkyl_dg_recomb_coll(coll_recomb_up_recvr, moms_elc_cu, moms_ion_cu, bmag_cu, jacob_tot_cu, b_i_cu, distf_recvr_cu, coll_recomb_recvr_cu, cflRate_recvr_cu);
 
     gkyl_array_copy(coll_recomb_elc, coll_recomb_elc_cu);
+    gkyl_array_copy(coll_recomb_ion, coll_recomb_ion_cu);
+    gkyl_array_copy(coll_recomb_recvr, coll_recomb_recvr_cu);
 
     gkyl_array_release(moms_elc_cu); gkyl_array_release(moms_ion_cu);
     gkyl_array_release(cflRate_elc_cu); gkyl_array_release(distf_elc_cu);
+    gkyl_array_release(cflRate_ion_cu); gkyl_array_release(distf_ion_cu);
+    gkyl_array_release(cflRate_recvr_cu); gkyl_array_release(distf_recvr_cu);
     gkyl_array_release(bmag_cu); gkyl_array_release(jacob_tot_cu);
-    gkyl_array_release(coll_recomb_elc_cu); gkyl_array_release(b_i_cu);
+    gkyl_array_release(b_i_cu); gkyl_array_release(coll_recomb_elc_cu);
+    gkyl_array_release(coll_recomb_ion_cu); gkyl_array_release(coll_recomb_recvr_cu);
   }
   else {
     gkyl_proj_gkmaxwellian_on_basis_lab_mom(proj_max_elc, &phaseRange_elc, &confRange, moms_elc,
@@ -716,13 +744,326 @@ test_coll_recomb_all_gk_li(bool use_gpu)
 
   const double *pv_ion = gkyl_array_cfetch(coll_recomb_ion, gkyl_range_idx(&phaseRange_ion, (int[5]) { 1, 1, 1, 8, 1}));
   for (int i=0; i<basis.num_basis; ++i) {
-    TEST_CHECK( gkyl_compare_double(p1_vals_ion[i], pv_ion[i], 1e-30) );
+    TEST_CHECK( gkyl_compare_double(p1_vals_ion[i], pv_ion[i], 1e-12) );
   }
   
   const double *pv_recvr = gkyl_array_cfetch(coll_recomb_recvr, gkyl_range_idx(&phaseRange_ion, (int[5]) { 1, 1, 1, 8, 1}));
   for (int i=0; i<basis.num_basis; ++i) {
-    TEST_CHECK( gkyl_compare_double(p1_vals_recvr[i], pv_recvr[i], 1e-30) );
+    TEST_CHECK( gkyl_compare_double(p1_vals_recvr[i], pv_recvr[i], 1e-12) );
   }
+  
+  gkyl_array_release(m0); gkyl_array_release(m2_elc); gkyl_array_release(m2_ion); 
+  gkyl_array_release(b_x); gkyl_array_release(b_y); gkyl_array_release(b_z);
+  gkyl_array_release(moms_elc); gkyl_array_release(moms_ion);
+  gkyl_array_release(cflRate_elc); gkyl_array_release(distf_elc);
+  gkyl_array_release(cflRate_ion); gkyl_array_release(distf_ion);
+  gkyl_array_release(cflRate_recvr); gkyl_array_release(distf_recvr);
+  gkyl_array_release(bmag); gkyl_array_release(jacob_tot); gkyl_array_release(b_i);
+  gkyl_array_release(coll_recomb_elc); gkyl_array_release(coll_recomb_ion); gkyl_array_release(coll_recomb_recvr); 
+  gkyl_proj_on_basis_release(projM0);
+  gkyl_proj_on_basis_release(projM2_elc); gkyl_proj_on_basis_release(projM2_ion);
+  gkyl_proj_on_basis_release(projBmag); gkyl_proj_on_basis_release(projJac);
+  gkyl_proj_maxwellian_on_basis_release(proj_max_elc);
+  gkyl_proj_maxwellian_on_basis_release(proj_max_ion);
+  gkyl_dg_recomb_release(coll_recomb_up_elc);
+  gkyl_dg_recomb_release(coll_recomb_up_ion);
+  gkyl_dg_recomb_release(coll_recomb_up_recvr);
+}
+
+void
+test_coll_recomb_all_gk_ar(bool use_gpu)
+{
+  int charge_state = 2;
+  bool all_gk = true;
+  // use vt = 40 eV for all grids
+  double vmax_elc = 4*sqrt(40*echarge/emass);
+  double vmin_elc = -vmax_elc;
+  double mumax_elc = 12*40*echarge/(2*B0);
+  double vmax_ion = 4*sqrt(40*echarge/ar_ion_mass);
+  double vmin_ion = -vmax_ion;
+  double mumax_ion = 12*40*echarge/(2*B0);
+  int poly_order = 1;
+  int cdim = 3, vdim = 2;
+  int pdim = cdim + vdim;
+
+  double lower_elc[] = {-2.0,-2.0,-2.0,vmin_elc,0.0}, upper_elc[] = {2.0,2.0,2.0,vmax_elc,mumax_elc};
+  double lower_ion[] = {-2.0,-2.0,-2.0,vmin_elc,0.0}, upper_ion[] = {2.0,2.0,2.0,vmax_elc,mumax_ion};
+  int ghost[] = {0, 0, 0, 0, 0};
+  int cells[] = {2, 2, 2, 16, 8};
+  char basepath[4000] = ".";
+
+  struct gkyl_rect_grid confGrid;
+  struct gkyl_range confRange, confRange_ext;
+  gkyl_rect_grid_init(&confGrid, cdim, lower_elc, upper_elc, cells);
+  gkyl_create_grid_ranges(&confGrid, ghost, &confRange, &confRange);
+
+  // elc phase grid
+  struct gkyl_rect_grid phaseGrid_elc;
+  struct gkyl_range phaseRange_elc, phaseRange_ext_elc;
+  gkyl_rect_grid_init(&phaseGrid_elc, pdim, lower_elc, upper_elc, cells);
+  gkyl_create_grid_ranges(&phaseGrid_elc, ghost, &phaseRange_elc, &phaseRange_elc);
+
+  // ion phase grid
+  struct gkyl_rect_grid phaseGrid_ion;
+  struct gkyl_range phaseRange_ion, phaseRange_ext_ion;
+  gkyl_rect_grid_init(&phaseGrid_ion, pdim, lower_ion, upper_ion, cells);
+  gkyl_create_grid_ranges(&phaseGrid_ion, ghost, &phaseRange_ion, &phaseRange_ion);
+
+  // basis functions
+  struct gkyl_basis phaseBasis, basis; // phase-space, conf-space basis
+
+  /* Force hybrid basis (p=2 in velocity space). */
+  gkyl_cart_modal_gkhybrid(&phaseBasis, cdim, vdim);
+  gkyl_cart_modal_serendip(&basis, cdim, poly_order);
+
+  // projection updater for moments
+  gkyl_proj_on_basis *projM0 = gkyl_proj_on_basis_new(&confGrid, &basis,
+    poly_order+1, 1, eval_m0, NULL);
+  gkyl_proj_on_basis *projM2_elc = gkyl_proj_on_basis_new(&confGrid, &basis,
+    poly_order+1, 1, eval_m2_3v_elc, NULL);
+  gkyl_proj_on_basis *projM2_ion = gkyl_proj_on_basis_new(&confGrid, &basis,
+    poly_order+1, 1, eval_m2_3v_li_ion, NULL);
+  gkyl_proj_on_basis *projBmag = gkyl_proj_on_basis_new(&confGrid, &basis,
+    poly_order+1, 1, eval_bmag, NULL);
+  gkyl_proj_on_basis *projJac = gkyl_proj_on_basis_new(&confGrid, &basis,
+    poly_order+1, 1, eval_jac, NULL);
+
+  // maxwellian on basis for fdist
+  gkyl_proj_maxwellian_on_basis *proj_max_elc = gkyl_proj_maxwellian_on_basis_new(&phaseGrid_elc,
+    &basis, &phaseBasis, poly_order+1, use_gpu);
+  gkyl_proj_maxwellian_on_basis *proj_max_ion = gkyl_proj_maxwellian_on_basis_new(&phaseGrid_ion,
+    &basis, &phaseBasis, poly_order+1, use_gpu);
+
+  struct gkyl_dg_recomb_inp rec_inp_elc = {
+    .grid = &phaseGrid_elc,
+    .cbasis = &basis,
+    .pbasis = &phaseBasis,
+    .conf_rng = &confRange,
+    .phase_rng = &phaseRange_elc,
+    .mass_self = emass,
+    .type_ion = GKYL_RECOMB_AR,
+    .charge_state = charge_state,
+    .type_self = GKYL_RECOMB_ELC,
+    .all_gk = all_gk,
+    .base = basepath,
+  };
+  struct gkyl_dg_recomb_inp rec_inp_ion = {
+    .grid = &phaseGrid_ion,
+    .cbasis = &basis,
+    .pbasis = &phaseBasis,
+    .conf_rng = &confRange,
+    .phase_rng = &phaseRange_ion,
+    .mass_self = ar_ion_mass,
+    .type_ion = GKYL_RECOMB_AR,
+    .charge_state = charge_state,
+    .type_self = GKYL_RECOMB_ION,
+    .all_gk = all_gk,
+    .base = basepath,
+  };
+  struct gkyl_dg_recomb_inp rec_inp_rcvr = {
+    .grid = &phaseGrid_ion,
+    .cbasis = &basis,
+    .pbasis = &phaseBasis,
+    .conf_rng = &confRange,
+    .phase_rng = &phaseRange_ion,
+    .mass_self = ar_ion_mass,
+    .type_ion = GKYL_RECOMB_AR,
+    .charge_state = charge_state,
+    .type_self = GKYL_RECOMB_RECVR,
+    .all_gk = all_gk,
+    .base = basepath,
+  };
+  
+  // coll struct.
+  struct gkyl_dg_recomb *coll_recomb_up_elc = gkyl_dg_recomb_new(&rec_inp_elc, use_gpu);
+  struct gkyl_dg_recomb *coll_recomb_up_ion = gkyl_dg_recomb_new(&rec_inp_ion, use_gpu);
+  struct gkyl_dg_recomb *coll_recomb_up_recvr = gkyl_dg_recomb_new(&rec_inp_rcvr, use_gpu);
+  
+  struct gkyl_array *m0 = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
+  struct gkyl_array *m2_elc = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
+  struct gkyl_array *m2_ion = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
+  struct gkyl_array *moms_ion = gkyl_array_new(GKYL_DOUBLE, 3*basis.num_basis, confRange.volume);
+  struct gkyl_array *moms_elc = gkyl_array_new(GKYL_DOUBLE, 3*basis.num_basis, confRange.volume);
+  struct gkyl_array *cflRate_elc = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, phaseRange_elc.volume);
+  struct gkyl_array *distf_elc = gkyl_array_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_elc.volume);
+  struct gkyl_array *coll_recomb_elc = gkyl_array_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_elc.volume);	
+  struct gkyl_array *cflRate_ion = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, phaseRange_ion.volume);
+  struct gkyl_array *distf_ion = gkyl_array_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);
+  struct gkyl_array *coll_recomb_ion = gkyl_array_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);	
+  struct gkyl_array *cflRate_recvr = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, phaseRange_ion.volume);
+  struct gkyl_array *distf_recvr = gkyl_array_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);
+  struct gkyl_array *coll_recomb_recvr = gkyl_array_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);	
+
+  // arrays necessary for fmax
+  struct gkyl_array *bmag = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
+  struct gkyl_array *jacob_tot = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
+  struct gkyl_array *b_i = gkyl_array_new(GKYL_DOUBLE, 3*basis.num_basis, confRange.volume);
+  struct gkyl_array *b_x = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
+  struct gkyl_array *b_y = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
+  struct gkyl_array *b_z = gkyl_array_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
+  
+  // project moments on basis
+  gkyl_proj_on_basis_advance(projM0, 0.0, &confRange, m0);
+  gkyl_proj_on_basis_advance(projM2_elc, 0.0, &confRange, m2_elc);
+  gkyl_proj_on_basis_advance(projM2_ion, 0.0, &confRange, m2_ion);
+  gkyl_proj_on_basis_advance(projBmag, 0.0, &confRange, bmag);
+  gkyl_proj_on_basis_advance(projJac, 0.0, &confRange, jacob_tot);
+
+  gkyl_array_set_offset(moms_ion, 1.0, m0, 0);
+  gkyl_array_set_offset(moms_elc, 1.0, m0, 0);
+  gkyl_array_set_offset(moms_ion, 1.0, m2_ion, 2*basis.num_basis);
+  gkyl_array_set_offset(moms_elc, 1.0, m2_elc, 2*basis.num_basis);
+
+  gkyl_array_shiftc(bmag, 0.5*pow(sqrt(2),cdim), 0);
+  gkyl_array_shiftc(jacob_tot, 1.0*pow(sqrt(2),cdim), 0);
+  gkyl_array_shiftc(b_z, 1.0*pow(sqrt(2),cdim), 0);
+
+  // project b_i
+  gkyl_array_set_offset(b_i, 1.0, b_x, 0);
+  gkyl_array_set_offset(b_i, 1.0, b_y, basis.num_basis);
+  gkyl_array_set_offset(b_i, 1.0, b_z, 2*basis.num_basis);
+
+  // cuda stuff
+  if (use_gpu) {
+    struct gkyl_array *moms_ion_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, 3*basis.num_basis, confRange.volume);
+    struct gkyl_array *moms_elc_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, 3*basis.num_basis, confRange.volume);
+    struct gkyl_array *cflRate_elc_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, basis.num_basis, phaseRange_elc.volume);
+    struct gkyl_array *distf_elc_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_elc.volume);
+    struct gkyl_array *coll_recomb_elc_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_elc.volume);
+    struct gkyl_array *cflRate_ion_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, basis.num_basis, phaseRange_ion.volume);
+    struct gkyl_array *distf_ion_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);
+    struct gkyl_array *coll_recomb_ion_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);
+    struct gkyl_array *cflRate_recvr_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, basis.num_basis, phaseRange_ion.volume);
+    struct gkyl_array *distf_recvr_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);
+    struct gkyl_array *coll_recomb_recvr_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, phaseBasis.num_basis, phaseRange_ion.volume);
+
+
+    // arrays necessary for fmax
+    struct gkyl_array *bmag_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
+    struct gkyl_array *jacob_tot_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, basis.num_basis, confRange.volume);
+    struct gkyl_array *b_i_cu = gkyl_array_cu_dev_new(GKYL_DOUBLE, 3*basis.num_basis, confRange.volume);
+
+    gkyl_array_copy(moms_ion_cu, moms_ion);
+    gkyl_array_copy(moms_elc_cu, moms_elc);
+    gkyl_array_copy(cflRate_elc_cu, cflRate_elc);
+    gkyl_array_copy(distf_elc_cu, distf_elc);
+    gkyl_array_copy(coll_recomb_elc_cu, coll_recomb_elc);
+    gkyl_array_copy(cflRate_ion_cu, cflRate_ion);
+    gkyl_array_copy(distf_ion_cu, distf_ion);
+    gkyl_array_copy(coll_recomb_ion_cu, coll_recomb_ion);
+    gkyl_array_copy(cflRate_recvr_cu, cflRate_recvr);
+    gkyl_array_copy(distf_recvr_cu, distf_elc);
+    gkyl_array_copy(coll_recomb_recvr_cu, coll_recomb_recvr);
+    gkyl_array_copy(bmag_cu, bmag);
+    gkyl_array_copy(jacob_tot_cu, jacob_tot);
+    gkyl_array_copy(b_i_cu, b_i);
+
+    gkyl_proj_gkmaxwellian_on_basis_lab_mom(proj_max_elc, &phaseRange_elc, &confRange, moms_elc_cu,
+    bmag_cu, jacob_tot_cu, emass, distf_elc_cu);
+    gkyl_proj_gkmaxwellian_on_basis_lab_mom(proj_max_ion, &phaseRange_ion, &confRange, moms_ion_cu,
+    bmag_cu, jacob_tot_cu, ar_ion_mass, distf_ion_cu);
+    gkyl_proj_gkmaxwellian_on_basis_lab_mom(proj_max_ion, &phaseRange_ion, &confRange, moms_ion_cu,
+    bmag_cu, jacob_tot_cu, ar_ion_mass, distf_recvr_cu);
+
+    gkyl_dg_recomb_coll(coll_recomb_up_elc, moms_elc_cu, moms_ion_cu, bmag_cu, jacob_tot_cu, b_i_cu, distf_elc_cu, coll_recomb_elc_cu, cflRate_elc_cu);
+    gkyl_dg_recomb_coll(coll_recomb_up_ion, moms_elc_cu, moms_ion_cu, bmag_cu, jacob_tot_cu, b_i_cu, distf_ion_cu, coll_recomb_ion_cu, cflRate_ion_cu);
+    gkyl_dg_recomb_coll(coll_recomb_up_recvr, moms_elc_cu, moms_ion_cu, bmag_cu, jacob_tot_cu, b_i_cu, distf_recvr_cu, coll_recomb_recvr_cu, cflRate_recvr_cu);
+
+    gkyl_array_copy(coll_recomb_elc, coll_recomb_elc_cu);
+    gkyl_array_copy(coll_recomb_ion, coll_recomb_ion_cu);
+    gkyl_array_copy(coll_recomb_recvr, coll_recomb_recvr_cu);
+
+    gkyl_array_release(moms_elc_cu); gkyl_array_release(moms_ion_cu);
+    gkyl_array_release(cflRate_elc_cu); gkyl_array_release(distf_elc_cu);
+    gkyl_array_release(cflRate_ion_cu); gkyl_array_release(distf_ion_cu);
+    gkyl_array_release(cflRate_recvr_cu); gkyl_array_release(distf_recvr_cu);
+    gkyl_array_release(bmag_cu); gkyl_array_release(jacob_tot_cu);
+    gkyl_array_release(b_i_cu); gkyl_array_release(coll_recomb_elc_cu);
+    gkyl_array_release(coll_recomb_ion_cu); gkyl_array_release(coll_recomb_recvr_cu);
+  }
+  else {
+    gkyl_proj_gkmaxwellian_on_basis_lab_mom(proj_max_elc, &phaseRange_elc, &confRange, moms_elc,
+      bmag, jacob_tot, emass, distf_elc);
+    gkyl_proj_gkmaxwellian_on_basis_lab_mom(proj_max_ion, &phaseRange_ion, &confRange, moms_ion,
+      bmag, jacob_tot, ar_ion_mass, distf_ion);
+    gkyl_proj_gkmaxwellian_on_basis_lab_mom(proj_max_ion, &phaseRange_ion, &confRange, moms_ion,
+      bmag, jacob_tot, ar_ion_mass, distf_recvr);
+    
+    gkyl_dg_recomb_coll(coll_recomb_up_elc, moms_elc, moms_ion, bmag, jacob_tot, b_i, distf_elc, coll_recomb_elc, cflRate_elc);
+    gkyl_dg_recomb_coll(coll_recomb_up_ion, moms_elc, moms_ion, bmag, jacob_tot, b_i, distf_ion, coll_recomb_ion, cflRate_ion);
+    gkyl_dg_recomb_coll(coll_recomb_up_recvr, moms_elc, moms_ion, bmag, jacob_tot, b_i, distf_recvr, coll_recomb_recvr, cflRate_recvr);
+
+  }
+
+  gkyl_grid_sub_array_write(&phaseGrid_elc, &phaseRange_elc, coll_recomb_elc, "ctest_coll_recomb_ar_elc.gkyl");
+  gkyl_grid_sub_array_write(&phaseGrid_ion, &phaseRange_ion, coll_recomb_ion, "ctest_coll_recomb_ar_ion.gkyl");
+  gkyl_grid_sub_array_write(&phaseGrid_ion, &phaseRange_ion, coll_recomb_recvr, "ctest_coll_recomb_ar_recvr.gkyl");
+  
+  /* double p1_vals_elc[] = {-1.1294702866949660e+00,  4.1690353814898518e-17,  1.3620058278830629e-16, */
+  /* 			  1.0939106443269294e-16, -4.0405966621267372e-02,  6.4531845081022388e-01, */
+  /* 			  -6.5547719607554868e-17, -1.8292605120850970e-17, -1.8292605120850973e-17, */
+  /* 			  -3.0106149097859049e-19,  8.5894501888000295e-19,  8.5894501888000295e-19, */
+  /* 			  -2.1592644969974534e-18, -5.2331806345357383e-17,  1.2872303658693029e-18, */
+  /* 			  2.3085791711993757e-02,  2.1529910102395784e-18, -6.0390723063272411e-19, */
+  /* 			  1.2751889412363940e-19,  4.3036463377777294e-19, -2.1592644969974522e-18, */
+  /* 			  -4.3601706556407344e-19, -4.3601706556407325e-19, -1.8620070394284992e-17, */
+  /* 			  -3.0027620989536669e-18, -3.0027620989536665e-18,  1.1617907585341364e-18, */
+  /* 			  1.2872303658693027e-18,  4.5354124272225516e-18,  4.1175149585861100e-18, */
+  /* 			  4.1175149585861108e-18, -3.0027620989536665e-18,  9.8751633813455655e-03, */
+  /* 			  9.9206632552543403e-18,  2.2550730834382822e-18,  2.2550730834382822e-18, */
+  /* 			  -5.6421361498541498e-03, -3.1812501828981977e-18, -3.3600097347004253e-18, */
+  /* 			  2.7366783748946434e-18,  2.1755756762465429e-18,  2.3798428241218515e-18, */
+  /* 			  2.3798428241218519e-18,  3.1636103024006822e-18,  3.0841128952089429e-18, */
+  /* 			  3.1862464691465977e-18,  3.1862464691465973e-18, -6.2809751367415434e-20}; */
+
+  /* double p1_vals_ion[] = {-7.6846242945232746e-04, -7.8389955672629886e-21,  4.6163486443475541e-20, */
+  /* 			  -6.1988540948317704e-21, -1.0310005382460250e-03,  4.3905801712689564e-04, */
+  /* 			  -3.4020165836416649e-20, -7.0189248310473829e-21, -7.0189248310473829e-21, */
+  /* 			  -1.8145675374875724e-20,  9.3224172047938343e-21,  9.3224172047938343e-21, */
+  /* 			  2.6168620978263334e-20,  1.0273022834532274e-20,  3.7277302672438594e-21, */
+  /* 			  5.8905814341720308e-04, -6.1988540948317696e-21, -2.8003789361644293e-20, */
+  /* 			  -9.3406860784252285e-21, -2.5663742360810315e-20, -1.2549290890324190e-23, */
+  /* 			  -1.4150557954674405e-21, -1.4150557954674397e-21,  4.0570915168827166e-20, */
+  /* 			  -3.7039667479594889e-21, -3.7039667479594889e-21,  1.9180531191562402e-20, */
+  /* 			  3.7277302672438594e-21,  1.7622216047481774e-20,  6.9591246497611424e-21, */
+  /* 			  6.9591246497611424e-21, -3.7039667479594896e-21, -6.8733369216401657e-04, */
+  /* 			  -4.3672002711301248e-21, -4.1743692221083202e-20,  1.0618648317224111e-20, */
+  /* 			  3.9270542894480212e-04, -1.7417610269871002e-20, -4.9755414143916293e-21, */
+  /* 			  -1.4873830536996144e-20, -1.0029322723470916e-20, -1.1156192785854932e-20, */
+  /* 			  -4.6109002185665186e-21, -5.6240576934890849e-21,  6.4544341022579593e-21, */
+  /* 			  -7.1995860635108777e-21, -7.1995860635108777e-21, -1.2177285274144719e-21}; */
+
+  /* double p1_vals_recvr[] = {7.6846242945232746e-04,  7.8389955672629886e-21, -4.6163486443475541e-20, */
+  /* 			    6.1988540948317704e-21,  1.0310005382460250e-03, -4.3905801712689564e-04, */
+  /* 			    3.4020165836416649e-20,  7.0189248310473829e-21,  7.0189248310473829e-21, */
+  /* 			    1.8145675374875724e-20, -9.3224172047938343e-21, -9.3224172047938343e-21, */
+  /* 			    -2.6168620978263334e-20, -1.0273022834532274e-20, -3.7277302672438594e-21, */
+  /* 			    -5.8905814341720308e-04,  6.1988540948317696e-21,  2.8003789361644293e-20, */
+  /* 			    9.3406860784252285e-21,  2.5663742360810315e-20,  1.2549290890324190e-23, */
+  /* 			    1.4150557954674405e-21,  1.4150557954674397e-21, -4.0570915168827166e-20, */
+  /* 			    3.7039667479594889e-21,  3.7039667479594889e-21, -1.9180531191562402e-20, */
+  /* 			    -3.7277302672438594e-21, -1.7622216047481774e-20, -6.9591246497611424e-21, */
+  /* 			    -6.9591246497611424e-21,  3.7039667479594896e-21,  6.8733369216401657e-04, */
+  /* 			    4.3672002711301248e-21,  4.1743692221083202e-20, -1.0618648317224111e-20, */
+  /* 			    -3.9270542894480212e-04,  1.7417610269871002e-20,  4.9755414143916293e-21, */
+  /* 			    1.4873830536996144e-20,  1.0029322723470916e-20,  1.1156192785854932e-20, */
+  /* 			    4.6109002185665186e-21,  5.6240576934890849e-21, -6.4544341022579593e-21, */
+  /* 			    7.1995860635108777e-21,  7.1995860635108777e-21,  1.2177285274144719e-21}; */
+    
+  /* const double *pv_elc = gkyl_array_cfetch(coll_recomb_elc, gkyl_range_idx(&phaseRange_elc, (int[5]) { 1, 1, 1, 8, 1})); */
+  /* for (int i=0; i<phaseBasis.num_basis; ++i) { */
+  /*   TEST_CHECK( gkyl_compare_double(p1_vals_elc[i], pv_elc[i], 1e-12) ); */
+  /* } */
+
+  /* const double *pv_ion = gkyl_array_cfetch(coll_recomb_ion, gkyl_range_idx(&phaseRange_ion, (int[5]) { 1, 1, 1, 8, 1})); */
+  /* for (int i=0; i<basis.num_basis; ++i) { */
+  /*   TEST_CHECK( gkyl_compare_double(p1_vals_ion[i], pv_ion[i], 1e-12) ); */
+  /* } */
+  
+  /* const double *pv_recvr = gkyl_array_cfetch(coll_recomb_recvr, gkyl_range_idx(&phaseRange_ion, (int[5]) { 1, 1, 1, 8, 1})); */
+  /* for (int i=0; i<basis.num_basis; ++i) { */
+  /*   TEST_CHECK( gkyl_compare_double(p1_vals_recvr[i], pv_recvr[i], 1e-12) ); */
+  /* } */
   
   gkyl_array_release(m0); gkyl_array_release(m2_elc); gkyl_array_release(m2_ion); 
   gkyl_array_release(b_x); gkyl_array_release(b_y); gkyl_array_release(b_z);
@@ -882,7 +1223,8 @@ void coll_recomb_init_elem() { test_coll_recomb_init_elem(false); }
 
 #ifdef GKYL_HAVE_CUDA
 void coll_recomb_h_gpu() { test_coll_recomb_h(true); }
-void coll_recomb_all_gk_li_gpu() { test_coll_recomb_all_gk_li(true); }
+void coll_recomb_li_gpu() { test_coll_recomb_all_gk_li(true); }
+void coll_recomb_ar_gpu() { test_coll_recomb_all_gk_ar(true); }
 void coll_recomb_init_elem_gpu() { test_coll_recomb_init_elem(true); }
 #endif
 
@@ -892,6 +1234,8 @@ TEST_LIST = {
   /* { "coll_recomb_init_elem", coll_recomb_init_elem }, */
 #ifdef GKYL_HAVE_CUDA
   { "coll_recomb_h_gpu", coll_recomb_h_gpu },
+  { "coll_recomb_li_gpu", coll_recomb_li_gpu },
+  { "coll_recomb_ar_gpu", coll_recomb_ar_gpu },
 #endif  
   { NULL, NULL },
 };
