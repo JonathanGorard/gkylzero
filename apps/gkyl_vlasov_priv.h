@@ -17,6 +17,8 @@
 #include <gkyl_array_reduce.h>
 #include <gkyl_array_rio.h>
 #include <gkyl_bc_basic.h>
+#include <gkyl_bc_emission_spectrum.h>
+#include <gkyl_bc_emission_elastic.h>
 #include <gkyl_bgk_collisions.h>
 #include <gkyl_dg_advection.h>
 #include <gkyl_dg_bin_ops.h>
@@ -190,8 +192,53 @@ struct vm_bgk_collisions {
 };
 
 struct vm_boundary_fluxes {
-  struct vm_species_moment integ_moms[2*GKYL_MAX_CDIM]; // integrated moments
+  struct gkyl_rect_grid boundary_grid[2*GKYL_MAX_CDIM];
+  struct gkyl_array *flux_arr[2*GKYL_MAX_CDIM];
+  struct gkyl_array *mom_arr[2*GKYL_MAX_CDIM];
+  struct gkyl_range flux_r[2*GKYL_MAX_CDIM];
+  struct gkyl_range conf_r[2*GKYL_MAX_CDIM];
+  struct gkyl_dg_updater_moment *integ_moms[2*GKYL_MAX_CDIM]; // integrated moments
   gkyl_ghost_surf_calc *flux_slvr; // boundary flux solver
+};
+
+// context for use in computing applied acceleration
+struct vm_emission_ctx { int num_species; double t_bound; bool elastic; enum gkyl_bc_emission_spectrum_norm_type norm_type[GKYL_MAX_SPECIES]; enum gkyl_bc_emission_spectrum_yield_type yield_type[GKYL_MAX_SPECIES]; enum gkyl_bc_emission_elastic_type elastic_type; void *norm_params[GKYL_MAX_SPECIES]; void *yield_params[GKYL_MAX_SPECIES]; void *elastic_params; char in_species[GKYL_MAX_SPECIES][128]; };
+
+struct vm_emitting_wall {
+  // emitting wall sheath boundary conditions
+  int num_species;
+  int dir;
+  enum gkyl_edge_loc edge;
+  double *scale_ptr;
+  double t_bound;
+  bool elastic;
+
+  struct gkyl_bc_emission_spectrum *update[GKYL_MAX_SPECIES];
+  struct gkyl_bc_emission_elastic *elastic_update;
+  struct gkyl_array *f_emit;
+  struct gkyl_array *buffer;
+  struct gkyl_array *elastic_yield;
+  struct gkyl_array *yield[GKYL_MAX_SPECIES]; // projected secondary electron yield
+  struct gkyl_array *spectrum[GKYL_MAX_SPECIES]; // projected secondary electron spectrum
+  struct gkyl_array *weight[GKYL_MAX_SPECIES];
+  struct gkyl_array *flux[GKYL_MAX_SPECIES];
+  struct gkyl_array *bflux_arr[GKYL_MAX_SPECIES];
+  struct gkyl_array *k[GKYL_MAX_SPECIES];
+  struct vm_species *impact_species[GKYL_MAX_SPECIES]; // pointers to impacting species
+  struct gkyl_range impact_normal_r[GKYL_MAX_SPECIES];
+  struct vm_emission_ctx *params;
+  struct gkyl_dg_updater_moment *flux_slvr[GKYL_MAX_SPECIES]; // integrated moments
+
+  struct gkyl_rect_grid *impact_grid[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_ghost_r[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_skin_r[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_buff_r[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_cbuff_r[GKYL_MAX_SPECIES];
+  
+  struct gkyl_rect_grid *emit_grid;
+  struct gkyl_range *emit_buff_r;
+  struct gkyl_range *emit_ghost_r;
+  struct gkyl_range *emit_skin_r;
 };
 
 struct vm_proj {
@@ -230,10 +277,8 @@ struct vm_proj {
 };
 
 struct vm_source {
-  struct vm_species_moment moms; // source moments
 
-  bool calc_bflux; // flag for calculating boundary fluxes
-  struct vm_boundary_fluxes bflux; // boundary flux object
+  struct vm_species_moment moms; // source moments
 
   struct gkyl_array *source; // applied source
   struct gkyl_array *source_host; // host copy for use in IO and projecting
@@ -242,6 +287,7 @@ struct vm_source {
   struct vm_species *source_species; // species to use for the source
   int source_species_idx; // index of source species
   
+  bool calc_bflux;
   double scale_factor; // factor to scale source function
   double source_length; // length used to scale the source function
   double *scale_ptr;
@@ -325,7 +371,12 @@ struct vm_species {
   struct gkyl_dg_eqn *eqn_vlasov; // Vlasov equation object
   
   // boundary conditions on lower/upper edges in each direction  
-  enum gkyl_species_bc_type lower_bc[3], upper_bc[3];
+  struct gkyl_vlasov_bc lower_bc[3], upper_bc[3];
+  // emitting wall sheath boundary conditions
+  struct vm_emitting_wall bc_emission_lo;
+  struct vm_emitting_wall bc_emission_up;
+  bool emit_lo; // flag to indicate if there emission BCs
+  bool emit_up;
   // Pointers to updaters that apply BC.
   struct gkyl_bc_basic *bc_lo[3];
   struct gkyl_bc_basic *bc_up[3];
@@ -343,6 +394,8 @@ struct vm_species {
   struct vm_eval_accel_ctx accel_ctx; // context for applied acceleration
 
   struct vm_proj proj_init; // projector for initial conditions
+
+  struct vm_boundary_fluxes bflux; // boundary flux object
 
   enum gkyl_source_id source_id; // type of source
   struct vm_source src; // applied source
@@ -611,6 +664,19 @@ void vm_species_moment_calc(const struct vm_species_moment *sm,
 void vm_species_moment_release(const struct gkyl_vlasov_app *app,
   const struct vm_species_moment *sm);
 
+/** vm_species_emission API */
+
+void vm_species_emission_init(struct gkyl_vlasov_app *app, struct vm_emitting_wall *emit,
+  int dir, enum gkyl_edge_loc edge, void *ctx, bool use_gpu);
+
+void vm_species_emission_cross_init(struct gkyl_vlasov_app *app, struct vm_species *s,
+  struct vm_emitting_wall *emit);
+
+void vm_species_emission_apply_bc(struct gkyl_vlasov_app *app, const struct vm_emitting_wall *emit,
+  struct gkyl_array *fout, double tcurr);
+
+void vm_species_emission_release(const struct vm_emitting_wall *emit);
+
 /** vm_species_lbo API */
 
 /**
@@ -737,7 +803,7 @@ void vm_species_bgk_release(const struct gkyl_vlasov_app *app, const struct vm_b
  *
  * @param app Vlasov app object
  * @param s Species object 
- * @param bflux Species boundary flux object
+ * @param bflu Sxpecies boundary flux object
  */
 void vm_species_bflux_init(struct gkyl_vlasov_app *app, struct vm_species *s,
   struct vm_boundary_fluxes *bflux);
@@ -887,7 +953,7 @@ double vm_species_rhs(gkyl_vlasov_app *app, struct vm_species *species,
  * @param species Pointer to species
  * @param f Field to apply BCs
  */
-void vm_species_apply_bc(gkyl_vlasov_app *app, const struct vm_species *species, struct gkyl_array *f);
+void vm_species_apply_bc(gkyl_vlasov_app *app, const struct vm_species *species, struct gkyl_array *f, double tcurr);
 
 /**
  * Compute L2 norm (f^2) of the distribution function diagnostic
