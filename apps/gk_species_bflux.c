@@ -48,7 +48,7 @@ gk_species_bflux_init(struct gkyl_gyrokinetic_app *app, struct gk_species *s, st
 
     bflux->integ_moms[2*i] = gkyl_dg_updater_moment_gyrokinetic_new(&bflux->boundary_grid[2*i],
       &app->confBasis, &app->basis, &bflux->conf_r[2*i], s->info.mass, s->vel_map, app->gk_geom, 0, 1, app->use_gpu);
-    bflux->integ_moms[2*i+1] = gkyl_dg_updater_moment_gyrokinetic_new(&bflux->boundary_grid[2*i],
+    bflux->integ_moms[2*i+1] = gkyl_dg_updater_moment_gyrokinetic_new(&bflux->boundary_grid[2*i+1],
       &app->confBasis, &app->basis, &bflux->conf_r[2*i+1], s->info.mass, s->vel_map, app->gk_geom, 0, 1, app->use_gpu);
 
     cells[i] = s->grid.cells[i];
