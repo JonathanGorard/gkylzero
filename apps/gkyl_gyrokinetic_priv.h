@@ -322,6 +322,43 @@ struct gk_boundary_fluxes {
   gkyl_ghost_surf_calc *flux_slvr; // boundary flux solver
 };
 
+struct gk_recycle_wall {
+  // recycling wall boundary conditions
+  int num_species;
+  int dir;
+  enum gkyl_edge_loc edge;
+  double *scale_ptr;
+  double t_bound;
+  bool elastic;
+
+  struct gkyl_bc_emission_spectrum *update[GKYL_MAX_SPECIES];
+  struct gkyl_bc_emission_elastic *elastic_update;
+  struct gkyl_array *f_emit;
+  struct gkyl_array *buffer;
+  struct gkyl_array *elastic_yield;
+  struct gkyl_array *yield[GKYL_MAX_SPECIES]; // projected secondary electron yield
+  struct gkyl_array *spectrum[GKYL_MAX_SPECIES]; // projected secondary electron spectrum
+  struct gkyl_array *weight[GKYL_MAX_SPECIES];
+  struct gkyl_array *flux[GKYL_MAX_SPECIES];
+  struct gkyl_array *bflux_arr[GKYL_MAX_SPECIES];
+  struct gkyl_array *k[GKYL_MAX_SPECIES];
+  struct vm_species *impact_species[GKYL_MAX_SPECIES]; // pointers to impacting species
+  struct gkyl_range impact_normal_r[GKYL_MAX_SPECIES];
+  struct gk_recycle_ctx *params;
+  struct gkyl_dg_updater_moment *flux_slvr[GKYL_MAX_SPECIES]; // integrated moments
+
+  struct gkyl_rect_grid *impact_grid[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_ghost_r[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_skin_r[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_buff_r[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_cbuff_r[GKYL_MAX_SPECIES];
+  
+  struct gkyl_rect_grid *emit_grid;
+  struct gkyl_range *emit_buff_r;
+  struct gkyl_range *emit_ghost_r;
+  struct gkyl_range *emit_skin_r;
+};
+
 struct gk_react {
   int num_react; // number of reactions
   bool all_gk; // boolean for if reactions are only between gyrokinetic species
