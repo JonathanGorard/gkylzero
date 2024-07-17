@@ -53,8 +53,8 @@ gk_species_bflux_init(struct gkyl_gyrokinetic_app *app, struct gk_species *s, st
 
     cells[i] = s->grid.cells[i];
 
-    bflux->mom_arr[2*i] = mkarr(app->use_gpu, app->confBasis.num_basis, bflux->conf_r[i].volume);
-    bflux->mom_arr[2*i+1] = mkarr(app->use_gpu, app->confBasis.num_basis, bflux->conf_r[i].volume);
+    bflux->mom_arr[2*i] = mkarr(app->use_gpu, app->confBasis.num_basis, bflux->conf_r[2*i].volume);
+    bflux->mom_arr[2*i+1] = mkarr(app->use_gpu, app->confBasis.num_basis, bflux->conf_r[2*i+1].volume);
   }
 }
 
