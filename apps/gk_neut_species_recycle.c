@@ -5,7 +5,7 @@ void
 gk_neut_species_recycle_init(struct gkyl_gyrokinetic_app *app, struct gk_recycle_wall *recyc,
   int dir, enum gkyl_edge_loc edge, void *ctx, bool use_gpu)
 {
-  struct vm_emission_ctx *params = ctx;
+  struct gkyl_bc_emission_ctx *params = ctx;
   recyc->params = params;
   recyc->num_species = params->num_species;
   recyc->edge = edge;
@@ -41,10 +41,10 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
   // Initialize elastic component of emission
   if (recyc->elastic) {
     recyc->elastic_yield = mkarr(app->use_gpu, app->basis.num_basis, recyc->emit_buff_r->volume);
-    recyc->elastic_update = gkyl_bc_emission_elastic_new(recyc->params->elastic_type,
-      recyc->params->elastic_params, recyc->elastic_yield, recyc->dir, recyc->edge, cdim, vdim,
-      s->f->ncomp, recyc->emit_grid, recyc->emit_buff_r, app->poly_order, app->basis_on_dev.basis,
-      &app->basis, proj_buffer, app->use_gpu);
+    recyc->elastic_update = gkyl_bc_emission_elastic_new(recyc->params->elastic_model,
+      recyc->elastic_yield, recyc->dir, recyc->edge, cdim, vdim, s->info.mass, s->f->ncomp, recyc->emit_grid,
+      recyc->emit_buff_r, app->poly_order, app->basis_on_dev.basis, &app->basis, proj_buffer,
+      app->use_gpu);
   }
 
   // Initialize inelastic emission spectrums
@@ -73,11 +73,10 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
     gkyl_bc_emission_flux_ranges(&recyc->impact_normal_r[i], recyc->dir + cdim, recyc->impact_buff_r[i],
       ghost, recyc->edge);
     
-    recyc->update[i] = gkyl_bc_emission_spectrum_new(recyc->params->norm_type[i],
-      recyc->params->yield_type[i], recyc->params->norm_params[i], recyc->params->yield_params[i],
-      recyc->yield[i], recyc->spectrum[i], recyc->dir, recyc->edge, cdim, vdim,
-      recyc->impact_buff_r[i], recyc->emit_buff_r, recyc->impact_grid[i], app->poly_order,
-      &app->basis,  proj_buffer, app->use_gpu);
+    recyc->update[i] = gkyl_bc_emission_spectrum_new(recyc->params->spectrum_model[i],
+      recyc->params->yield_model[i], recyc->yield[i], recyc->spectrum[i], recyc->dir, recyc->edge,
+      cdim, vdim, recyc->impact_species[i]->info.mass, s->info.mass, recyc->impact_buff_r[i],
+      recyc->emit_buff_r, recyc->impact_grid[i], app->poly_order, &app->basis, proj_buffer, app->use_gpu);
   }
   gkyl_array_release(proj_buffer);
 }
