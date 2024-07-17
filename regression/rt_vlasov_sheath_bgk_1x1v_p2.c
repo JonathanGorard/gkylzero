@@ -6,7 +6,6 @@
 #include <gkyl_vlasov.h>
 #include <rt_arg_parse.h>
 #include <gkyl_vlasov_priv.h>
-#include <gkyl_bc_emission.h>
 
 #include <gkyl_null_comm.h>
 
@@ -21,7 +20,6 @@
 struct sheath_ctx {
   double epsilon0;
   double mu0;
-  double q0;
   double chargeElc; // electron charge
   double massElc; // electron mass
   double chargeIon; // ion charge
@@ -32,25 +30,13 @@ struct sheath_ctx {
   double vte; // electron thermal velocity
   double vti; // ion thermal velocity
   double lambda_D;
+  double nu_ee; // electron-electron collision frequency
+  double nu_ii; // ion-ion collision frequency
   double Lx; // size of the box
   double Ls;
   double omega_pe;
-  double phi;
-  double deltahat_ts;
-  double Ehat_ts;
-  double t1;
-  double t2;
-  double t3;
-  double t4;
-  double s;
-  double P1_inf;
-  double P1_hat;
-  double E_hat;
-  double W;
-  double p;
   int Nx;
   int Nv;
-  int num_emission_species;
   double t_end;
   int num_frames;
   double dt_failure_tol;
@@ -122,30 +108,38 @@ evalFieldFunc(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fo
   fout[6] = 0.0; fout[7] = 0.0;
 }
 
+void
+evalElcNu(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fout, void* ctx)
+{
+  struct sheath_ctx *app = ctx;
+  double x = xn[0], v = xn[1];
+  double nu = app->nu_ee;
+  double lambda_D = app->lambda_D;
+
+  // Set collision frequency.                                                                                                                                                                               
+  fout[0] = nu/(1 + exp(fabs(x)/(6.0*lambda_D) - 8.0/1.5));
+}
+
+void
+evalIonNu(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fout, void* ctx)
+{
+  struct sheath_ctx *app = ctx;
+  double x = xn[0], v = xn[1];
+  double nu = app->nu_ii;
+  double lambda_D = app->lambda_D;
+
+  // Set collision frequency.                                                                                                                                                                               
+  fout[0] = nu/(1 + exp(fabs(x)/(6.0*lambda_D) - 8.0/1.5));
+}
+
 struct sheath_ctx
 create_ctx(void)
 {
   double massElc = 9.109e-31;
   double q0 = 1.602e-19;
-
-  // SEE parameters
-  double phi = 4.68;
-  double deltahat_ts = 1.885;
-  double Ehat_ts = 276.8;
-  double t1 = 0.66;
-  double t2 = 0.8;
-  double t3 = 0.7;
-  double t4 = 1.0;
-  double s = 1.54;
-  double P1_inf = 0.02;
-  double P1_hat = 0.496;
-  double E_hat = 1.0e-6;
-  double W = 60.86;
-  double p = 1.0;
   struct sheath_ctx ctx = {
     .epsilon0 = 8.854e-12,
     .mu0 = 1.257e-6,
-    .q0 = q0,
     .chargeElc = -q0,
     .massElc = massElc,
     .chargeIon = q0,
@@ -156,25 +150,13 @@ create_ctx(void)
     .vte = sqrt(ctx.Te/massElc),
     .vti = sqrt(ctx.Ti/ctx.massIon),
     .lambda_D = sqrt(ctx.epsilon0*ctx.Te/(ctx.n0*q0*q0)),
+    .nu_ee = ctx.vte/(50.0*ctx.lambda_D), 
+    .nu_ii = ctx.vti/(50.0*ctx.lambda_D), 
     .Lx = 128.0*ctx.lambda_D,
     .Ls = 100.0*ctx.lambda_D,
     .omega_pe = sqrt(ctx.n0*q0*q0/(ctx.epsilon0*massElc)),
-    .phi = phi,
-    .deltahat_ts = deltahat_ts,
-    .Ehat_ts = Ehat_ts,
-    .t1 = t1,
-    .t2 = t2,
-    .t3 = t3,
-    .t4 = t4,
-    .s = s,
-    .P1_inf = P1_inf,
-    .P1_hat = P1_hat,
-    .E_hat = E_hat,
-    .W = W,
-    .p = p,
     .Nx = 128,
     .Nv = 32,
-    .num_emission_species = 1,
     .t_end = 10.0/ctx.omega_pe,
     .num_frames = 1,
     .dt_failure_tol = 1.0e-4,
@@ -307,15 +289,6 @@ main(int argc, char **argv)
     goto mpifinalize;
   }
 
-  char in_species[1][128] = { "elc" };
-  struct gkyl_bc_emission_ctx *bc_ctx = gkyl_bc_emission_secondary_electron_copper_new(ctx.num_emission_species, 0.0, in_species, app_args.use_gpu);
-  /* struct gkyl_spectrum_model *spectrum_model[1]; */
-  /* spectrum_model[0] = gkyl_spectrum_chung_everhart_new(ctx.q0, ctx.phi, app_args.use_gpu); */
-  /* struct gkyl_yield_model *yield_model[1]; */
-  /* yield_model[0] = gkyl_yield_furman_pivi_new(ctx.q0, ctx.deltahat_ts, ctx.Ehat_ts, ctx.t1, ctx.t2, ctx.t3, ctx.t4, ctx.s, app_args.use_gpu); */
-  /* struct gkyl_elastic_model *elastic_model = gkyl_elastic_furman_pivi_new(ctx.q0, ctx.P1_inf, ctx.P1_hat, ctx.E_hat, ctx.W, ctx.p, app_args.use_gpu); */
-  /* struct gkyl_bc_emission_ctx *bc_ctx = gkyl_bc_emission_new(ctx.num_emission_species, 0.0, true, spectrum_model, yield_model, elastic_model, in_species); */
-
   // electrons
   struct gkyl_vlasov_species elc = {
     .name = "elc",
@@ -341,10 +314,16 @@ main(int argc, char **argv)
       },
     },
 
+    .collisions =  {
+      .collision_id = GKYL_BGK_COLLISIONS,
+      .self_nu = evalElcNu,
+      .ctx = &ctx,
+      .fixed_temp_relax = true, 
+    },
+
     .bcx = {
       .lower = { .type = GKYL_SPECIES_REFLECT, },
-      .upper = { .type = GKYL_SPECIES_EMISSION,
-                 .aux_ctx = bc_ctx, },
+      .upper = { .type = GKYL_SPECIES_ABSORB, },
     },
     
     .num_diag_moments = 3,
@@ -376,6 +355,13 @@ main(int argc, char **argv)
       },
     },
 
+    .collisions =  {
+      .collision_id = GKYL_BGK_COLLISIONS,
+      .self_nu = evalIonNu,
+      .ctx = &ctx,
+      .fixed_temp_relax = true, 
+    },
+
     .bcx = {
       .lower = { .type = GKYL_SPECIES_REFLECT, },
       .upper = { .type = GKYL_SPECIES_ABSORB, },
@@ -399,7 +385,7 @@ main(int argc, char **argv)
 
   // VM app
   struct gkyl_vm app_inp = {
-    .name = "vlasov_emission_spectrum_1x1v_p2",
+    .name = "vlasov_sheath_bgk_1x1v_p2",
 
     .cdim = 1, .vdim = 1,
     .lower = { 0.0 },
@@ -511,12 +497,6 @@ main(int argc, char **argv)
   gkyl_rect_decomp_release(decomp);
   gkyl_comm_release(comm);
   gkyl_vlasov_app_release(app);
-  /* for (int i=0; i<ctx.num_emission_species; ++i) { */
-  /*   gkyl_spectrum_model_release(spectrum_model[i]); */
-  /*   gkyl_yield_model_release(yield_model[i]); */
-  /* } */
-  /* gkyl_elastic_model_release(elastic_model); */
-  gkyl_bc_emission_release(bc_ctx);
 
 mpifinalize:
 #ifdef GKYL_HAVE_MPI

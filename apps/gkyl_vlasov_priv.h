@@ -17,6 +17,7 @@
 #include <gkyl_array_reduce.h>
 #include <gkyl_array_rio.h>
 #include <gkyl_bc_basic.h>
+#include <gkyl_bc_emission.h>
 #include <gkyl_bc_emission_spectrum.h>
 #include <gkyl_bc_emission_elastic.h>
 #include <gkyl_bgk_collisions.h>
@@ -178,6 +179,9 @@ struct vm_bgk_collisions {
   enum gkyl_model_id model_id;
   struct vm_species_moment moms; // moments needed in BGK (n, V_drift, T/m) for LTE distribution
 
+  bool fixed_temp_relax; // boolean for whether the temperature being relaxed to is fixed in time.
+  struct gkyl_array *fixed_temp; // array of fixed temperature BGK collisions are relaxing to
+
   // LTE distribution function projection object
   // also corrects the density of projected distribution function
   struct gkyl_vlasov_lte_proj_on_basis *proj_lte; 
@@ -210,6 +214,11 @@ struct vm_emitting_wall {
   double t_bound;
   bool elastic;
 
+  struct gkyl_spectrum_model *spectrum_model[GKYL_MAX_SPECIES];
+  struct gkyl_yield_model *yield_model[GKYL_MAX_SPECIES];
+  struct gkyl_elastic_model *elastic_model;
+  struct gkyl_bc_emission_ctx *params;
+
   struct gkyl_bc_emission_spectrum *update[GKYL_MAX_SPECIES];
   struct gkyl_bc_emission_elastic *elastic_update;
   struct gkyl_array *f_emit;
@@ -223,7 +232,6 @@ struct vm_emitting_wall {
   struct gkyl_array *k[GKYL_MAX_SPECIES];
   struct vm_species *impact_species[GKYL_MAX_SPECIES]; // pointers to impacting species
   struct gkyl_range impact_normal_r[GKYL_MAX_SPECIES];
-  struct vm_emission_ctx *params;
   struct gkyl_dg_updater_moment *flux_slvr[GKYL_MAX_SPECIES]; // integrated moments
 
   struct gkyl_rect_grid *impact_grid[GKYL_MAX_SPECIES];
@@ -767,6 +775,19 @@ void vm_species_bgk_init(struct gkyl_vlasov_app *app, struct vm_species *s,
  * @param fin Input distribution function
  */
 void vm_species_bgk_moms(gkyl_vlasov_app *app,
+  const struct vm_species *species,
+  struct vm_bgk_collisions *bgk,
+  const struct gkyl_array *fin);
+
+/**
+ * Compute and store a fixed temperature for BGK collisions
+ *
+ * @param app Vlasov app object
+ * @param species Pointer to species
+ * @param bgk Pointer to BGK
+ * @param fin Input distribution function
+ */
+void vm_species_bgk_moms_fixed_temp(gkyl_vlasov_app *app,
   const struct vm_species *species,
   struct vm_bgk_collisions *bgk,
   const struct gkyl_array *fin);
