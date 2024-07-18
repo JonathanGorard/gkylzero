@@ -17,7 +17,7 @@ gkyl_bc_emission_new(int num_species, double t_bound, bool elastic,
     ctx->yield_model[i] = gkyl_yield_model_acquire(yield_model[i]);
     strcpy(ctx->in_species[i], in_species[i]);
   }
-  ctx->elastic_model = gkyl_elastic_model_acquire(elastic_model);
+  if (elastic) ctx->elastic_model = gkyl_elastic_model_acquire(elastic_model);
 
   return ctx;
 }
