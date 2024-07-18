@@ -667,6 +667,9 @@ struct gk_neut_species {
   // boundary fluxes
   struct gk_boundary_fluxes bflux;
 
+  // recycling wall boundary conditions
+  struct gk_recycle_wall bc_recycle_lo;
+  struct gk_recycle_wall bc_recycle_up;
   // boundary conditions on lower/upper edges in each direction  
   struct gkyl_gyrokinetic_bc lower_bc[3], upper_bc[3];
   // Pointers to updaters that apply BC.
@@ -1399,6 +1402,19 @@ void gk_neut_species_bflux_rhs(gkyl_gyrokinetic_app *app, const struct gk_neut_s
  * @param bflux Species boundary flux object to release
  */
 void gk_neut_species_bflux_release(const struct gkyl_gyrokinetic_app *app, const struct gk_boundary_fluxes *bflux);
+
+/** gk_neut_species_recycle API **/
+
+void gk_neut_species_recycle_init(struct gkyl_gyrokinetic_app *app, struct gk_recycle_wall *recyc,
+  int dir, enum gkyl_edge_loc edge, void *ctx, bool use_gpu);
+
+void gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_species *s,
+  struct gk_recycle_wall *recyc);
+
+void gk_neut_species_recycle_apply_bc(struct gkyl_gyrokinetic_app *app, const struct gk_recycle_wall *recyc,
+  struct gkyl_array *fout, double tcurr);
+
+void gk_neut_species_recycle_release(const struct gk_recycle_wall *recyc);
 
 /** gk_neut_species_react API */
 

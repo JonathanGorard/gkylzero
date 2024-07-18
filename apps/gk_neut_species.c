@@ -222,7 +222,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     // Copy BCs by default.
     enum gkyl_bc_basic_type bctype = GKYL_BC_COPY;
     if (s->lower_bc[d].type == GKYL_SPECIES_RECYCLE) {
-      ;
+      gk_neut_species_recycle_init(app, &s->bc_recycle_lo, d, GKYL_LOWER_EDGE, s->lower_bc[d].aux_ctx, app->use_gpu);
     }
     else { 
       if (s->lower_bc[d].type == GKYL_SPECIES_COPY) 
@@ -249,7 +249,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     }
 
     if (s->upper_bc[d].type == GKYL_SPECIES_RECYCLE) {
-      ;
+      gk_neut_species_recycle_init(app, &s->bc_recycle_up, d, GKYL_UPPER_EDGE, s->upper_bc[d].aux_ctx, app->use_gpu);
     }
     else {
       // Upper BC updater. Copy BCs by default.

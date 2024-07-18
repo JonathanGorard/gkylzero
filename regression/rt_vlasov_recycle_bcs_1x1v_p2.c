@@ -5,7 +5,6 @@
 #include <gkyl_alloc.h>
 #include <gkyl_vlasov.h>
 #include <rt_arg_parse.h>
-#include <gkyl_vlasov_priv.h>
 #include <gkyl_bc_emission.h>
 
 #include <gkyl_null_comm.h>
@@ -384,7 +383,7 @@ main(int argc, char **argv)
     .ctx = &ctx,
     .init = evalFieldFunc,
 
-    .bcx = { GKYL_FIELD_SYM_WALL, GKYL_FIELD_PEC_WALL }
+    .bcx = { GKYL_FIELD_PEC_WALL, GKYL_FIELD_PEC_WALL }
   };
 
   // VM app
