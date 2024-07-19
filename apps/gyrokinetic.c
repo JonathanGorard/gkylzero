@@ -374,6 +374,12 @@ gkyl_gyrokinetic_app_new(struct gkyl_gk *gk)
     if (app->neut_species[i].has_neutral_reactions) {
       gk_neut_species_react_cross_init(app, &app->neut_species[i], &app->neut_species[i].react_neut);
     }
+    // initialize species wall emission terms: these rely
+    // on other species which must be allocated in the previous step
+    if (app->neut_species[i].recyc_lo)
+      gk_neut_species_recycle_cross_init(app, &app->neut_species[i], &app->neut_species[i].bc_recycle_lo);
+    if (app->neut_species[i].recyc_up)
+      gk_neut_species_recycle_cross_init(app, &app->neut_species[i], &app->neut_species[i].bc_recycle_up);
   }
 
   // initialize each plasma species and neutral species source terms

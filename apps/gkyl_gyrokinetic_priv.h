@@ -663,13 +663,16 @@ struct gk_neut_species {
   int num_periodic_dir; // number of periodic directions
   int periodic_dirs[3]; // list of periodic directions
   bool bc_is_np[3]; // whether BC is nonperiodic.
-
+  
   // boundary fluxes
   struct gk_boundary_fluxes bflux;
 
   // recycling wall boundary conditions
   struct gk_recycle_wall bc_recycle_lo;
   struct gk_recycle_wall bc_recycle_up;
+  bool recyc_lo;
+  bool recyc_up;
+  
   // boundary conditions on lower/upper edges in each direction  
   struct gkyl_gyrokinetic_bc lower_bc[3], upper_bc[3];
   // Pointers to updaters that apply BC.
