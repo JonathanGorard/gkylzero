@@ -169,7 +169,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     }
   }
 
-  // allocate date for density 
+  // allocate data for density 
   gk_neut_species_moment_init(app, s, &s->m0, "M0");
   // allocate data for integrated moments
   gk_neut_species_moment_init(app, s, &s->integ_moms, "Integrated");
@@ -339,7 +339,7 @@ gk_neut_species_apply_bc(gkyl_gyrokinetic_app *app, const struct gk_neut_species
 
       switch (species->lower_bc[d].type) {
         case GKYL_SPECIES_RECYCLE:
-          ;
+          gk_neut_species_recycle_apply_bc(app, &species->bc_recycle_lo, f);
           break;
         case GKYL_SPECIES_COPY:
         case GKYL_SPECIES_REFLECT:
@@ -357,7 +357,7 @@ gk_neut_species_apply_bc(gkyl_gyrokinetic_app *app, const struct gk_neut_species
 
       switch (species->upper_bc[d].type) {
         case GKYL_SPECIES_RECYCLE:
-          ;
+          gk_neut_species_recycle_apply_bc(app, &species->bc_recycle_up, f);
           break;
         case GKYL_SPECIES_COPY:
         case GKYL_SPECIES_REFLECT:

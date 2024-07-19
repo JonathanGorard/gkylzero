@@ -83,12 +83,12 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
 
 void
 gk_neut_species_recycle_apply_bc(struct gkyl_gyrokinetic_app *app, const struct gk_recycle_wall *recyc,
-  struct gkyl_array *fout, double tcurr)
+  struct gkyl_array *fout)
 {
   // Optional scaling of emission with time
   double t_scale = 1.0;
-  if (recyc->t_bound)
-    t_scale = sin(M_PI*tcurr/(2.0*recyc->t_bound));
+  /* if (recyc->t_bound) */
+  /*   t_scale = sin(M_PI*tcurr/(2.0*recyc->t_bound)); */
 
   gkyl_array_clear(recyc->f_emit, 0.0); // Zero emitted distribution before beginning accumulate
 

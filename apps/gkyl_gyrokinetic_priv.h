@@ -510,7 +510,7 @@ struct gk_species {
 
   struct gkyl_velocity_map *vel_map; // Velocity mapping objects.
 
-  struct gkyl_array *f, *f1, *fnew; // arrays for updates
+  struct gkyl_array *f, *f1, *fnew; // arrays for update
   struct gkyl_array *cflrate; // CFL rate in each cell
   struct gkyl_array *bc_buffer; // buffer for BCs (used by bc_basic)
   struct gkyl_array *bc_buffer_lo_fixed, *bc_buffer_up_fixed; // fixed buffers for time independent BCs 
@@ -1412,7 +1412,7 @@ void gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct
   struct gk_recycle_wall *recyc);
 
 void gk_neut_species_recycle_apply_bc(struct gkyl_gyrokinetic_app *app, const struct gk_recycle_wall *recyc,
-  struct gkyl_array *fout, double tcurr);
+  struct gkyl_array *fout);
 
 void gk_neut_species_recycle_release(const struct gk_recycle_wall *recyc);
 

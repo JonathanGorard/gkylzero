@@ -4,6 +4,7 @@
 #include <time.h>
 
 #include <gkyl_alloc.h>
+#include <gkyl_bc_emission.h>
 #include <gkyl_const.h>
 #include <gkyl_fem_parproj.h>
 #include <gkyl_gyrokinetic.h>
@@ -36,6 +37,8 @@ struct sheath_ctx
 
   double nu_frac; // Collision frequency fraction.
 
+  double rec_frac; // Recycling fraction for neutral BCs.
+
   // Derived physical quantities (using non-normalized physical units).
   double R; // Radial coordinate (simple toroidal coordinates).
   double B0; // Reference magnetic field strength (Tesla).
@@ -48,6 +51,7 @@ struct sheath_ctx
   double c_s; // Sound speed.
   double vte; // Electron thermal velocity.
   double vti; // Ion thermal velocity.
+  double vtn; 
   double omega_ci; // Ion cyclotron frequency.
   double rho_s; // Ion-sound gyroradius.
 
@@ -102,6 +106,8 @@ create_ctx(void)
 
   double nu_frac = 0.1; // Collision frequency fraction.
 
+  double rec_frac = 0.5; 
+
   // Derived physical quantities (using non-normalized physical units).
   double R = R0 + a0; // Radial coordinate (simple toroidal coordinates).
   double B0 = B_axis * (R0 / R); // Reference magnetic field strength (Tesla).
@@ -119,6 +125,7 @@ create_ctx(void)
   double c_s = sqrt(Te / mass_ion); // Sound speed.
   double vte = sqrt(Te / mass_elc); // Electron thermal velocity.
   double vti = sqrt(Ti / mass_ion); // Ion thermal velocity.
+  double vtn = sqrt(T0 / mass_ion);
   double omega_ci = fabs(charge_ion * B0 / mass_ion); // Ion cyclotron frequency.
   double rho_s = c_s / omega_ci; // Ion-sound gyroradius.
 
@@ -163,6 +170,7 @@ create_ctx(void)
     .R0 = R0,
     .a0 = a0,
     .nu_frac = nu_frac,
+    .rec_frac = rec_frac,
     .R = R,
     .B0 = B0,
     .log_lambda_elc = log_lambda_elc,
@@ -172,6 +180,7 @@ create_ctx(void)
     .c_s = c_s,
     .vte = vte,
     .vti = vti,
+    .vtn = vtn,
     .omega_ci = omega_ci,
     .rho_s = rho_s,
     .n_src = n_src,
@@ -302,7 +311,7 @@ void
 evalDensityNeutInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fout, void* ctx)
 {
   struct sheath_ctx *app = ctx;
-  double x = xn[0], z = xn[1];
+  double x = xn[0], z = xn[2];
   double n = 0.1*app->n0;
 
   // Set number density.
@@ -582,6 +591,13 @@ main(int argc, char **argv)
     }
   }
 
+  char in_species[1][128] = { "ion" };
+  struct gkyl_spectrum_model *spectrum_model[1];
+  spectrum_model[0] = gkyl_spectrum_maxwellian_new(0.0, ctx.vtn, app_args.use_gpu);
+  struct gkyl_yield_model *yield_model[1];
+  yield_model[0] = gkyl_yield_constant_new(0.0, ctx.rec_frac, app_args.use_gpu);
+  struct gkyl_bc_emission_ctx *bc_ctx = gkyl_bc_emission_new(1, 0.0, false, spectrum_model, yield_model, NULL, in_species);
+
   // Electron species.
   struct gkyl_gyrokinetic_species elc = {
     .name = "elc",
@@ -770,7 +786,13 @@ main(int argc, char **argv)
     },
 
     .bcx = { GKYL_SPECIES_ABSORB, GKYL_SPECIES_ABSORB },
-    .bcz = { GKYL_SPECIES_REFLECT, GKYL_SPECIES_REFLECT },
+    //.bcz = { GKYL_SPECIES_REFLECT, GKYL_SPECIES_REFLECT },
+    .bcz = {
+      .lower = { .type = GKYL_SPECIES_RECYCLE,
+    		 .aux_ctx = bc_ctx, },
+      .upper = { .type = GKYL_SPECIES_RECYCLE,
+                 .aux_ctx = bc_ctx, },
+    },
     
     .num_diag_moments = 3,
     .diag_moments = { "M0", "M1i", "M2"},
