@@ -299,7 +299,7 @@ main(int argc, char **argv)
     .lower = { -4.0*ctx.vte},
     .upper = { 4.0*ctx.vte}, 
     .cells = { NV },
-
+    
     .projection = {
       .proj_id = GKYL_PROJ_FUNC,
       .func = evalDistFuncElc,
@@ -333,7 +333,7 @@ main(int argc, char **argv)
     .lower = { -4.0*ctx.vti},
     .upper = { 4.0*ctx.vti}, 
     .cells = { NV },
-
+    
     .projection = {
       .proj_id = GKYL_PROJ_FUNC,
       .func = evalDistFuncIon,
@@ -400,7 +400,7 @@ main(int argc, char **argv)
     .num_periodic_dir = 0,
     .periodic_dirs = { },
 
-    .num_species = 2,
+    .num_species = 3,
     .species = { elc, ion, neut },
     .field = field,
 

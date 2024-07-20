@@ -624,7 +624,7 @@ main(int argc, char **argv)
       .collide_with = { "ion" },
     },
     .react_neut = {
-      .num_react = 1,
+      .num_react = 0,
       .react_type = {
         { .react_id = GKYL_REACT_RECOMB,
           .type_self = GKYL_SELF_ELC,
@@ -692,7 +692,7 @@ main(int argc, char **argv)
       .collide_with = { "elc" },
     },
     .react_neut = {
-      .num_react = 2,
+      .num_react = 0,
       .react_type = {
         { .react_id = GKYL_REACT_RECOMB,
           .type_self = GKYL_SELF_ION,
@@ -761,7 +761,7 @@ main(int argc, char **argv)
     },
 
     .react_neut = {
-      .num_react = 2,
+      .num_react = 0,
       .react_type = {
         { .react_id = GKYL_REACT_RECOMB,
           .type_self = GKYL_SELF_RECVR,

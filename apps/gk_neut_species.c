@@ -218,6 +218,9 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
   s->bc_buffer_lo_fixed = mkarr(app->use_gpu, app->neut_basis.num_basis, buff_sz);
   s->bc_buffer_up_fixed = mkarr(app->use_gpu, app->neut_basis.num_basis, buff_sz);
 
+  // initialize boundary fluxes for diagnostics and bcs
+  gk_neut_species_bflux_init(app, s, &s->bflux); 
+  
   for (int d=0; d<cdim; ++d) {
     // Copy BCs by default.
     enum gkyl_bc_basic_type bctype = GKYL_BC_COPY;
@@ -440,6 +443,8 @@ gk_neut_species_release(const gkyl_gyrokinetic_app* app, const struct gk_neut_sp
 
   if (s->has_neutral_reactions)
     gk_neut_species_react_release(app, &s->react_neut);
+
+  gk_neut_species_bflux_release(app, &s->bflux);
 
   // Copy BCs are allocated by default. Need to free.
   for (int d=0; d<app->cdim; ++d) {

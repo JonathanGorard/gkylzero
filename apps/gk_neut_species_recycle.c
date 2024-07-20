@@ -31,19 +31,19 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
   }
 
   recyc->emit_grid = &s->bflux.boundary_grid[bdir];
-  recyc->emit_buff_r = &s->bflux.flux_r[bdir];
+  recyc->emit_buff_r = &s->bflux.flux_r[bdir]; // is this the problem? 
   recyc->emit_ghost_r = (recyc->edge == GKYL_LOWER_EDGE) ? &s->lower_ghost[recyc->dir] : &s->upper_ghost[recyc->dir];
   recyc->emit_skin_r = (recyc->edge == GKYL_LOWER_EDGE) ? &s->lower_skin[recyc->dir] : &s->upper_skin[recyc->dir];
   recyc->buffer = s->bc_buffer;
-  recyc->f_emit = mkarr(app->use_gpu, app->basis.num_basis, recyc->emit_buff_r->volume);
-  struct gkyl_array *proj_buffer = mkarr(false, app->basis.num_basis, recyc->emit_buff_r->volume);
+  recyc->f_emit = mkarr(app->use_gpu, app->neut_basis.num_basis, recyc->emit_buff_r->volume);
+  struct gkyl_array *proj_buffer = mkarr(false, app->neut_basis.num_basis, recyc->emit_buff_r->volume);
 
   // Initialize elastic component of emission
   if (recyc->elastic) {
-    recyc->elastic_yield = mkarr(app->use_gpu, app->basis.num_basis, recyc->emit_buff_r->volume);
+    recyc->elastic_yield = mkarr(app->use_gpu, app->neut_basis.num_basis, recyc->emit_buff_r->volume);
     recyc->elastic_update = gkyl_bc_emission_elastic_new(recyc->params->elastic_model,
       recyc->elastic_yield, recyc->dir, recyc->edge, cdim, vdim, s->info.mass, s->f->ncomp, recyc->emit_grid,
-      recyc->emit_buff_r, app->poly_order, app->basis_on_dev.basis, &app->basis, proj_buffer,
+      recyc->emit_buff_r, app->poly_order, app->basis_on_dev.basis, &app->neut_basis, proj_buffer,
       app->use_gpu);
   }
 
@@ -62,8 +62,8 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
       &app->basis, recyc->impact_cbuff_r[i], recyc->impact_species[i]->info.mass, recyc->impact_species[i]->vel_map,
       app->gk_geom, 0, 1, app->use_gpu);
     
-    recyc->yield[i] = mkarr(app->use_gpu, app->basis.num_basis, recyc->impact_buff_r[i]->volume);
-    recyc->spectrum[i] = mkarr(app->use_gpu, app->basis.num_basis, recyc->emit_buff_r->volume);
+    recyc->yield[i] = mkarr(app->use_gpu, app->neut_basis.num_basis, recyc->impact_buff_r[i]->volume);
+    recyc->spectrum[i] = mkarr(app->use_gpu, app->neut_basis.num_basis, recyc->emit_buff_r->volume);
     recyc->weight[i] = mkarr(app->use_gpu, app->confBasis.num_basis,
       recyc->impact_cbuff_r[i]->volume);
     recyc->flux[i] = mkarr(app->use_gpu, app->confBasis.num_basis, recyc->impact_cbuff_r[i]->volume);
@@ -76,7 +76,7 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
     recyc->update[i] = gkyl_bc_emission_spectrum_new(recyc->params->spectrum_model[i],
       recyc->params->yield_model[i], recyc->yield[i], recyc->spectrum[i], recyc->dir, recyc->edge,
       cdim, vdim, recyc->impact_species[i]->info.mass, s->info.mass, recyc->impact_buff_r[i],
-      recyc->emit_buff_r, recyc->impact_grid[i], app->poly_order, &app->basis, proj_buffer, app->use_gpu);
+      recyc->emit_buff_r, recyc->impact_grid[i], app->poly_order, &app->neut_basis, proj_buffer, app->use_gpu);
   }
   gkyl_array_release(proj_buffer);
 }
@@ -95,7 +95,7 @@ gk_neut_species_recycle_apply_bc(struct gkyl_gyrokinetic_app *app, const struct 
   // Elastic emission contribution
   if (recyc->elastic) {
     gkyl_bc_emission_elastic_advance(recyc->elastic_update, recyc->emit_skin_r, recyc->buffer, fout,
-      recyc->f_emit, recyc->elastic_yield, &app->basis);
+      recyc->f_emit, recyc->elastic_yield, &app->neut_basis);
   }
   // Inelastic emission contribution
   for (int i=0; i<recyc->num_species; ++i) {
