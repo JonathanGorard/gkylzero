@@ -99,7 +99,7 @@ gk_neut_species_react_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_neu
 	.phase_rng = &s->local,
 	.mass_ion = react->react_type[i].ion_mass,
 	.mass_neut = react->react_type[i].partner_mass,
-	.type_ion = GKYL_ION_D,
+        .type_ion = react->react_type[i].ion_id,
       };
       react->cx[i] = gkyl_dg_cx_new(&cx_inp, app->use_gpu);
     }
@@ -154,7 +154,6 @@ gk_neut_species_react_cross_moms(gkyl_gyrokinetic_app *app, const struct gk_neut
       // compute recombination reaction rate
       gkyl_dg_recomb_coll(react->recomb[i], react->moms_elc[i].marr, react->moms_ion[i].marr,
         app->gk_geom->b_i, react->prim_vars[i], react->coeff_react[i], 0);
-      gkyl_grid_sub_array_write(&app->grid, &app->local, 0, react->prim_vars[i], "prim_vars.gkyl");
     }
     else if (react->react_id[i] == GKYL_REACT_CX) {
       // calc moms_ion, moms_neut
