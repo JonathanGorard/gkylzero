@@ -21,7 +21,7 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
   int cdim = app->cdim;
   int vdim = app->vdim+1; // from gk_neut_species
   int bdir = (recyc->edge == GKYL_LOWER_EDGE) ? 2*recyc->dir : 2*recyc->dir+1;
-
+ 
   int ghost[GKYL_MAX_DIM];
   for (int d=0; d<cdim; ++d) {
     ghost[d] = 1;
@@ -31,7 +31,7 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
   }
 
   recyc->emit_grid = &s->bflux.boundary_grid[bdir];
-  recyc->emit_buff_r = &s->bflux.flux_r[bdir]; // is this the problem? 
+  recyc->emit_buff_r = &s->bflux.flux_r[bdir]; 
   recyc->emit_ghost_r = (recyc->edge == GKYL_LOWER_EDGE) ? &s->lower_ghost[recyc->dir] : &s->upper_ghost[recyc->dir];
   recyc->emit_skin_r = (recyc->edge == GKYL_LOWER_EDGE) ? &s->lower_skin[recyc->dir] : &s->upper_skin[recyc->dir];
   recyc->buffer = s->bc_buffer;
@@ -57,7 +57,6 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
     recyc->impact_buff_r[i] = &recyc->impact_species[i]->bflux.flux_r[bdir];
     recyc->impact_cbuff_r[i] = &recyc->impact_species[i]->bflux.conf_r[bdir];
 
-    // This needs to change to gk moment
     recyc->flux_slvr[i] = gkyl_dg_updater_moment_gyrokinetic_new(recyc->impact_grid[i], &app->confBasis,
       &app->basis, recyc->impact_cbuff_r[i], recyc->impact_species[i]->info.mass, recyc->impact_species[i]->vel_map,
       app->gk_geom, 0, 1, app->use_gpu);
@@ -72,11 +71,13 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
 
     gkyl_bc_emission_flux_ranges(&recyc->impact_normal_r[i], recyc->dir + cdim, recyc->impact_buff_r[i],
       ghost, recyc->edge);
-    
+
+    int emission_dir = 0; // because of GK velocity grid
     recyc->update[i] = gkyl_bc_emission_spectrum_new(recyc->params->spectrum_model[i],
-      recyc->params->yield_model[i], recyc->yield[i], recyc->spectrum[i], recyc->dir, recyc->edge,
+      recyc->params->yield_model[i], recyc->yield[i], recyc->spectrum[i], emission_dir, recyc->edge,
       cdim, vdim, recyc->impact_species[i]->info.mass, s->info.mass, recyc->impact_buff_r[i],
       recyc->emit_buff_r, recyc->impact_grid[i], app->poly_order, &app->neut_basis, proj_buffer, app->use_gpu);
+    
   }
   gkyl_array_release(proj_buffer);
 }
@@ -85,6 +86,7 @@ void
 gk_neut_species_recycle_apply_bc(struct gkyl_gyrokinetic_app *app, const struct gk_recycle_wall *recyc,
   struct gkyl_array *fout)
 {
+  //printf("Applying recycle bcs...\n");
   // Optional scaling of emission with time
   double t_scale = 1.0;
   /* if (recyc->t_bound) */
@@ -101,7 +103,7 @@ gk_neut_species_recycle_apply_bc(struct gkyl_gyrokinetic_app *app, const struct 
   for (int i=0; i<recyc->num_species; ++i) {
     int species_idx;
     species_idx = gk_find_species_idx(app, recyc->impact_species[i]->info.name);
-
+    
     gkyl_dg_updater_moment_gyrokinetic_advance(recyc->flux_slvr[i], &recyc->impact_normal_r[i],
       recyc->impact_cbuff_r[i], recyc->bflux_arr[i], recyc->flux[i]);
     
