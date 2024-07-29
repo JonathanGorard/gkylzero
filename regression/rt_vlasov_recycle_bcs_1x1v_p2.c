@@ -363,9 +363,14 @@ main(int argc, char **argv)
       .ctx_func = &ctx,
     },
 
+    /* .bcx = { */
+    /*   .lower = { .type = GKYL_SPECIES_ABSORB, }, */
+    /*   .upper = { .type = GKYL_SPECIES_ABSORB, }, */
+    /* }, */
+    
     .bcx = {
       .lower = { .type = GKYL_SPECIES_EMISSION,
-		 .aux_ctx = bc_ctx, },
+    		 .aux_ctx = bc_ctx, },
       .upper = { .type = GKYL_SPECIES_EMISSION,
                  .aux_ctx = bc_ctx, },
     },
