@@ -69,6 +69,11 @@ vm_species_emission_cross_init(struct gkyl_vlasov_app *app, struct vm_species *s
     emit->bflux_arr[i] = emit->impact_species[i]->bflux.flux_arr[bdir];
     emit->k[i] = mkarr(app->use_gpu, app->confBasis.num_basis, emit->impact_cbuff_r[i]->volume);
 
+    const char *fmt = "emit_bflux_arr_%s.gkyl";
+    int sz = gkyl_calc_strlen(fmt, emit->impact_species[i]->info.name);
+    char fileNm[sz+1]; // ensures no buffer overflow
+    snprintf(fileNm, sizeof fileNm, fmt, emit->impact_species[i]->info.name);
+
     gkyl_bc_emission_flux_ranges(&emit->impact_normal_r[i], emit->dir + cdim,
       emit->impact_buff_r[i], ghost, emit->edge);
     
@@ -76,6 +81,8 @@ vm_species_emission_cross_init(struct gkyl_vlasov_app *app, struct vm_species *s
       emit->params->yield_model[i], emit->yield[i], emit->spectrum[i], emit->dir, emit->edge,
       cdim, vdim, emit->impact_species[i]->info.mass, s->info.mass, emit->impact_buff_r[i], emit->emit_buff_r, emit->impact_grid[i], app->poly_order,
       &app->basis,  proj_buffer, app->use_gpu);
+
+    gkyl_grid_sub_array_write(emit->impact_grid[i], emit->impact_buff_r[i], 0, emit->bflux_arr[i], fileNm);
   }
   gkyl_array_release(proj_buffer);
 }
@@ -98,6 +105,14 @@ vm_species_emission_apply_bc(struct gkyl_vlasov_app *app, const struct vm_emitti
   }
   // Inelastic emission contribution
   for (int i=0; i<emit->num_species; ++i) {
+    const char *fmt = "emit_bflux_arr_app_bc_%s.gkyl";
+    int sz = gkyl_calc_strlen(fmt, emit->impact_species[i]->info.name);
+    char fileNm[sz+1]; // ensures no buffer overflow
+    snprintf(fileNm, sizeof fileNm, fmt, emit->impact_species[i]->info.name);
+    //gkyl_grid_sub_array_write(&bflux->boundary_grid[2*j], &bflux->flux_r[2*j], 0, bflux->flux_arr[2*j], fileNm);
+    //gkyl_grid_sub_array_write(&bflux->boundary_grid[2*j+1], &bflux->flux_r[2*j+1], 0, bflux->flux_arr[2*j+1], fileNm);
+    gkyl_grid_sub_array_write(emit->impact_grid[i], emit->impact_buff_r[i], 0, emit->bflux_arr[i], fileNm);
+    
     int species_idx;
     species_idx = vm_find_species_idx(app, emit->impact_species[i]->info.name);
     gkyl_dg_updater_moment_advance(emit->flux_slvr[i], &emit->impact_normal_r[i],
@@ -110,6 +125,7 @@ vm_species_emission_apply_bc(struct gkyl_vlasov_app *app, const struct vm_emitti
   }
   gkyl_array_set_range_to_range(fout, t_scale, emit->f_emit, emit->emit_ghost_r,
     emit->emit_buff_r);
+  gkyl_grid_sub_array_write(emit->emit_grid, emit->emit_buff_r, 0, emit->f_emit, "f_emit.gkyl");
 }
 
 void

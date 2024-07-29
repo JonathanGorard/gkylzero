@@ -175,7 +175,7 @@ create_ctx(void)
     .Nx = 128,
     .Nv = 32,
     .num_emission_species = 1,
-    .t_end = 10.0/ctx.omega_pe,
+    .t_end = 0.1/ctx.omega_pe,
     .num_frames = 1,
     .dt_failure_tol = 1.0e-4,
     .num_failures_max = 20,
@@ -308,13 +308,19 @@ main(int argc, char **argv)
   }
 
   char in_species[1][128] = { "elc" };
-  //struct gkyl_bc_emission_ctx *bc_ctx = gkyl_bc_emission_secondary_electron_copper_new(ctx.num_emission_species, 0.0, in_species, app_args.use_gpu);
+  //  struct gkyl_bc_emission_ctx *bc_ctx = gkyl_bc_emission_secondary_electron_copper_new(ctx.num_emission_species, 0.0, in_species, app_args.use_gpu);
   struct gkyl_spectrum_model *spectrum_model[1];
   spectrum_model[0] = gkyl_spectrum_chung_everhart_new(ctx.q0, ctx.phi, app_args.use_gpu);
   struct gkyl_yield_model *yield_model[1];
   yield_model[0] = gkyl_yield_furman_pivi_new(ctx.q0, ctx.deltahat_ts, ctx.Ehat_ts, ctx.t1, ctx.t2, ctx.t3, ctx.t4, ctx.s, app_args.use_gpu);
   struct gkyl_elastic_model *elastic_model = gkyl_elastic_furman_pivi_new(ctx.q0, ctx.P1_inf, ctx.P1_hat, ctx.E_hat, ctx.W, ctx.p, app_args.use_gpu);
   struct gkyl_bc_emission_ctx *bc_ctx = gkyl_bc_emission_new(ctx.num_emission_species, 0.0, true, spectrum_model, yield_model, elastic_model, in_species);
+
+  /* struct gkyl_spectrum_model *spectrum_model[1]; */
+  /* spectrum_model[0] = gkyl_spectrum_maxwellian_new(ctx.q0, ctx.vti, app_args.use_gpu); */
+  /* struct gkyl_yield_model *yield_model[1]; */
+  /* yield_model[0] = gkyl_yield_constant_new(ctx.q0, 0.5, app_args.use_gpu); */
+  /* struct gkyl_bc_emission_ctx *bc_ctx = gkyl_bc_emission_new(ctx.num_emission_species, 0.0, false, spectrum_model, yield_model, NULL, in_species); */
 
   // electrons
   struct gkyl_vlasov_species elc = {

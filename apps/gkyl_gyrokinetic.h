@@ -176,6 +176,8 @@ struct gkyl_gyrokinetic_species {
 
   struct gkyl_mapc2p_inp mapc2p;
 
+  bool is_static;
+  
   // Initial conditions using projection routine.
   struct gkyl_gyrokinetic_projection projection;
 

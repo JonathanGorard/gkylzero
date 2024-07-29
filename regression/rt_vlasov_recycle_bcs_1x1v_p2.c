@@ -287,10 +287,11 @@ main(int argc, char **argv)
 
   char in_species[1][128] = { "ion" };
   struct gkyl_spectrum_model *spectrum_model[1];
-  spectrum_model[0] = gkyl_spectrum_maxwellian_new(ctx.q0, ctx.norm_vt, app_args.use_gpu);
+  spectrum_model[0] = gkyl_spectrum_maxwellian_new(0.0, ctx.norm_vt, app_args.use_gpu);
   struct gkyl_yield_model *yield_model[1];
-  yield_model[0] = gkyl_yield_constant_new(ctx.q0, ctx.yield_delta, app_args.use_gpu);
-  struct gkyl_bc_emission_ctx *bc_ctx = gkyl_bc_emission_new(ctx.num_emission_species, 0.0, false, spectrum_model, yield_model, NULL, in_species);
+  yield_model[0] = gkyl_yield_constant_new(0.0, ctx.yield_delta, app_args.use_gpu);
+  struct gkyl_bc_emission_ctx *bc_ctx = gkyl_bc_emission_new(ctx.num_emission_species, 0.0,
+    false, spectrum_model, yield_model, NULL, in_species);
 
   // electrons
   struct gkyl_vlasov_species elc = {
@@ -367,7 +368,7 @@ main(int argc, char **argv)
     /*   .lower = { .type = GKYL_SPECIES_ABSORB, }, */
     /*   .upper = { .type = GKYL_SPECIES_ABSORB, }, */
     /* }, */
-    
+
     .bcx = {
       .lower = { .type = GKYL_SPECIES_EMISSION,
     		 .aux_ctx = bc_ctx, },

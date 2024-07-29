@@ -442,14 +442,15 @@ calc_field_and_apply_bc(gkyl_gyrokinetic_app* app, double tcurr, struct gkyl_arr
 
   // Apply boundary conditions.
   for (int i=0; i<app->num_species; ++i) {
-    gk_species_apply_bc(app, &app->species[i], distf[i]);
+    if (!app->species[i].info.is_static) {
+      gk_species_apply_bc(app, &app->species[i], distf[i]);
+    }
   }
   for (int i=0; i<app->num_neut_species; ++i) {
     if (!app->neut_species[i].info.is_static) {
       gk_neut_species_apply_bc(app, &app->neut_species[i], distf_neut[i]);
     }
   }
-
 }
 
 struct gk_species *
@@ -720,46 +721,48 @@ gkyl_gyrokinetic_app_write(gkyl_gyrokinetic_app* app, double tm, int frame)
   }
 
   for (int i=0; i<app->num_species; ++i) {
-    gkyl_gyrokinetic_app_write_species(app, i, tm, frame);
-    if (app->species[i].source_id) {
-      if (app->species[i].src.write_source) {
-        gkyl_gyrokinetic_app_write_source_species(app, i, tm, frame);
+    if(frame == 0 || !app->species[i].info.is_static) {
+      gkyl_gyrokinetic_app_write_species(app, i, tm, frame);
+      if (app->species[i].source_id) {
+	if (app->species[i].src.write_source) {
+	  gkyl_gyrokinetic_app_write_source_species(app, i, tm, frame);
+	}
       }
-    }
-    if (app->species[i].collision_id == GKYL_LBO_COLLISIONS) {
-      gkyl_gyrokinetic_app_write_coll_mom(app, i, tm, frame);
-    }
-    if (app->species[i].radiation_id == GKYL_GK_RADIATION){
-      gkyl_gyrokinetic_app_write_rad_drag(app, i, tm, frame);
-      gkyl_gyrokinetic_app_write_rad_emissivity(app, i, tm, frame);
-      gkyl_gyrokinetic_app_write_rad_integrated_moms(app, i, tm);
-    }
-    if (app->species[i].has_reactions) {
-      for (int j=0; j<app->species[i].react.num_react; ++j) {
-        if ((app->species[i].react.react_id[j] == GKYL_REACT_IZ) 
-          && (app->species[i].react.type_self[j] == GKYL_SELF_ELC)) {
-          gkyl_gyrokinetic_app_write_iz_react(app, i, j, tm, frame);
-        }
-        if ((app->species[i].react.react_id[j] == GKYL_REACT_RECOMB) 
-          && (app->species[i].react.type_self[j] == GKYL_SELF_ELC)) {
-          gkyl_gyrokinetic_app_write_recomb_react(app, i, j, tm, frame);
-        }
+      if (app->species[i].collision_id == GKYL_LBO_COLLISIONS) {
+	gkyl_gyrokinetic_app_write_coll_mom(app, i, tm, frame);
       }
-    }
-    if (app->species[i].has_neutral_reactions) {
-      for (int j=0; j<app->species[i].react_neut.num_react; ++j) {
-        if ((app->species[i].react_neut.react_id[j] == GKYL_REACT_IZ) 
-          && (app->species[i].react_neut.type_self[j] == GKYL_SELF_ELC)) {
-          gkyl_gyrokinetic_app_write_iz_react_neut(app, i, j, tm, frame);
-        }
-        if ((app->species[i].react_neut.react_id[j] == GKYL_REACT_RECOMB) 
-          && (app->species[i].react_neut.type_self[j] == GKYL_SELF_ELC)) {
-          gkyl_gyrokinetic_app_write_recomb_react_neut(app, i, j, tm, frame);
-        }
-	if ((app->species[i].react_neut.react_id[j] == GKYL_REACT_CX)
-          && (app->species[i].react_neut.type_self[j] == GKYL_SELF_ION)) {
-          gkyl_gyrokinetic_app_write_cx_react_neut(app, i, j, tm, frame);
-        }
+      if (app->species[i].radiation_id == GKYL_GK_RADIATION){
+	gkyl_gyrokinetic_app_write_rad_drag(app, i, tm, frame);
+	gkyl_gyrokinetic_app_write_rad_emissivity(app, i, tm, frame);
+	gkyl_gyrokinetic_app_write_rad_integrated_moms(app, i, tm);
+      }
+      if (app->species[i].has_reactions) {
+	for (int j=0; j<app->species[i].react.num_react; ++j) {
+	  if ((app->species[i].react.react_id[j] == GKYL_REACT_IZ) 
+	      && (app->species[i].react.type_self[j] == GKYL_SELF_ELC)) {
+	    gkyl_gyrokinetic_app_write_iz_react(app, i, j, tm, frame);
+	  }
+	  if ((app->species[i].react.react_id[j] == GKYL_REACT_RECOMB) 
+	      && (app->species[i].react.type_self[j] == GKYL_SELF_ELC)) {
+	    gkyl_gyrokinetic_app_write_recomb_react(app, i, j, tm, frame);
+	  }
+	}
+      }
+      if (app->species[i].has_neutral_reactions) {
+	for (int j=0; j<app->species[i].react_neut.num_react; ++j) {
+	  if ((app->species[i].react_neut.react_id[j] == GKYL_REACT_IZ) 
+	      && (app->species[i].react_neut.type_self[j] == GKYL_SELF_ELC)) {
+	    gkyl_gyrokinetic_app_write_iz_react_neut(app, i, j, tm, frame);
+	  }
+	  if ((app->species[i].react_neut.react_id[j] == GKYL_REACT_RECOMB) 
+	      && (app->species[i].react_neut.type_self[j] == GKYL_SELF_ELC)) {
+	    gkyl_gyrokinetic_app_write_recomb_react_neut(app, i, j, tm, frame);
+	  }
+	  if ((app->species[i].react_neut.react_id[j] == GKYL_REACT_CX)
+	      && (app->species[i].react_neut.type_self[j] == GKYL_SELF_ION)) {
+	    gkyl_gyrokinetic_app_write_cx_react_neut(app, i, j, tm, frame);
+	  }
+	}
       }
     }
   }
@@ -2024,7 +2027,9 @@ forward_euler(gkyl_gyrokinetic_app* app, double tcurr, double dt,
 
   // Complete update of distribution functions.
   for (int i=0; i<app->num_species; ++i) {
-    gkyl_array_accumulate(gkyl_array_scale(fout[i], dta), 1.0, fin[i]);
+    if(!app->species[i].info.is_static) {
+      gkyl_array_accumulate(gkyl_array_scale(fout[i], dta), 1.0, fin[i]);
+    }
   }
   for (int i=0; i<app->num_neut_species; ++i) {
     if (!app->neut_species[i].info.is_static) {
@@ -2055,7 +2060,9 @@ rk3(gkyl_gyrokinetic_app* app, double dt0)
       case RK_STAGE_1:
         for (int i=0; i<app->num_species; ++i) {
           fin[i] = app->species[i].f;
-          fout[i] = app->species[i].f1;
+          if (!app->species[i].info.is_static) {	  
+	    fout[i] = app->species[i].f1;
+	  }
         }
         for (int i=0; i<app->num_neut_species; ++i) {
           fin_neut[i] = app->neut_species[i].f;
@@ -2074,8 +2081,10 @@ rk3(gkyl_gyrokinetic_app* app, double dt0)
 
       case RK_STAGE_2:
         for (int i=0; i<app->num_species; ++i) {
-          fin[i] = app->species[i].f1;
-          fout[i] = app->species[i].fnew;
+          if (!app->species[i].info.is_static) {	  
+	    fin[i] = app->species[i].f1;
+	    fout[i] = app->species[i].fnew;
+	  }
         }
         for (int i=0; i<app->num_neut_species; ++i) {
           if (!app->neut_species[i].info.is_static) {
@@ -2110,9 +2119,12 @@ rk3(gkyl_gyrokinetic_app* app, double dt0)
         } 
         else {
           for (int i=0; i<app->num_species; ++i) {
-            array_combine(app->species[i].f1,
-              3.0/4.0, app->species[i].f, 1.0/4.0, app->species[i].fnew, &app->species[i].local_ext);
-          }
+	    if (!app->species[i].info.is_static) {	  
+	      array_combine(app->species[i].f1,
+                3.0/4.0, app->species[i].f, 1.0/4.0, app->species[i].fnew, &app->species[i].local_ext);
+
+	    }
+	  }
           for (int i=0; i<app->num_neut_species; ++i) {
             if (!app->neut_species[i].info.is_static) {
               array_combine(app->neut_species[i].f1,
@@ -2135,8 +2147,10 @@ rk3(gkyl_gyrokinetic_app* app, double dt0)
 
       case RK_STAGE_3:
         for (int i=0; i<app->num_species; ++i) {
-          fin[i] = app->species[i].f1;
-          fout[i] = app->species[i].fnew;
+	  if (!app->species[i].info.is_static) {	  
+	    fin[i] = app->species[i].f1;
+	    fout[i] = app->species[i].fnew;
+	  }
         }
         for (int i=0; i<app->num_neut_species; ++i) {
           if (!app->neut_species[i].info.is_static) {
@@ -2171,10 +2185,12 @@ rk3(gkyl_gyrokinetic_app* app, double dt0)
         }
         else {
           for (int i=0; i<app->num_species; ++i) {
-            array_combine(app->species[i].f1,
-              1.0/3.0, app->species[i].f, 2.0/3.0, app->species[i].fnew, &app->species[i].local_ext);
-            gkyl_array_copy_range(app->species[i].f, app->species[i].f1, &app->species[i].local_ext);
-          }
+	    if (!app->species[i].info.is_static) {	  
+	      array_combine(app->species[i].f1,
+                1.0/3.0, app->species[i].f, 2.0/3.0, app->species[i].fnew, &app->species[i].local_ext);
+	      gkyl_array_copy_range(app->species[i].f, app->species[i].f1, &app->species[i].local_ext);
+	    }
+	  }
           for (int i=0; i<app->num_neut_species; ++i) {
             if (!app->neut_species[i].info.is_static) {
               array_combine(app->neut_species[i].f1,
@@ -2569,7 +2585,11 @@ gkyl_gyrokinetic_app_read_from_frame(gkyl_gyrokinetic_app *app, int frame)
     rstat = gkyl_gyrokinetic_app_from_frame_neut_species(app, i, neut_frame);
   }
   for (int i=0; i<app->num_species; i++) {
-    rstat = gkyl_gyrokinetic_app_from_frame_species(app, i, frame);
+    int gk_frame = frame;
+    if (app->species[i].info.is_static) {
+      gk_frame = 0;
+    }    
+    rstat = gkyl_gyrokinetic_app_from_frame_species(app, i, gk_frame);
   }
   
   if (rstat.io_status == GKYL_ARRAY_RIO_SUCCESS) {
