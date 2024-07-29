@@ -156,7 +156,7 @@ gkyl_bc_emission_spectrum_advance(const struct gkyl_bc_emission_spectrum *up,
   while (gkyl_range_iter_next(&conf_iter)) {
     long midx = gkyl_range_idx(impact_cbuff_r, conf_iter.idx);
 
-    gkyl_range_deflate(&vel_buff_r, emit_buff_r, rem_dir, conf_iter.idx);
+    gkyl_range_deflate(&vel_buff_r, impact_buff_r, rem_dir, conf_iter.idx);
     gkyl_range_iter_no_split_init(&vel_iter, &vel_buff_r);
 
     double *w = gkyl_array_fetch(weight, midx);
