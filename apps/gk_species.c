@@ -414,52 +414,55 @@ gk_species_rhs(gkyl_gyrokinetic_app *app, struct gk_species *species,
   const struct gkyl_array *fin, struct gkyl_array *rhs)
 {
   gkyl_array_set(species->phi, 1.0, app->field->phi_smooth);
-
-  gkyl_array_clear(species->cflrate, 0.0);
-  gkyl_array_clear(rhs, 0.0);
-
-  // Compute the surface expansion of the phase space flux
-  // Note: Each cell stores the *lower* surface expansions of the 
-  // phase space flux, so local_ext range needed to index the output
-  // values of alpha_surf even though we only loop over local ranges
-  // to avoid evaluating quantities such as geometry in ghost cells
-  // where they are not defined.
-  gkyl_dg_calc_gyrokinetic_vars_alpha_surf(species->calc_gk_vars, 
-    &app->local, &species->local, &species->local_ext, 
-    species->phi, species->alpha_surf, species->sgn_alpha_surf, species->const_sgn_alpha);
-
-  gkyl_dg_updater_gyrokinetic_advance(species->slvr, &species->local, 
-    fin, species->cflrate, rhs);
-
-  if (species->collision_id == GKYL_LBO_COLLISIONS)
-    gk_species_lbo_rhs(app, species, &species->lbo, fin, rhs);
-  else if (species->collision_id == GKYL_BGK_COLLISIONS)
-    gk_species_bgk_rhs(app, species, &species->bgk, fin, rhs);
-  
-  if (species->has_diffusion)
-    gkyl_dg_updater_diffusion_gyrokinetic_advance(species->diff_slvr, &species->local, 
-      species->diffD, app->gk_geom->jacobgeo_inv, fin, species->cflrate, rhs);
-
-  if (species->radiation_id == GKYL_GK_RADIATION)
-    gk_species_radiation_rhs(app, species, &species->rad, fin, rhs);
-
-  if (species->has_reactions)
-    gk_species_react_rhs(app, species, &species->react, fin, rhs);
-  if (species->has_neutral_reactions)
-    gk_species_react_rhs(app, species, &species->react_neut, fin, rhs);
-  
-  app->stat.nspecies_omega_cfl +=1;
-  struct timespec tm = gkyl_wall_clock();
-  gkyl_array_reduce_range(species->omega_cfl, species->cflrate, GKYL_MAX, &species->local);
-
   double omega_cfl_ho[1];
-  if (app->use_gpu)
-    gkyl_cu_memcpy(omega_cfl_ho, species->omega_cfl, sizeof(double), GKYL_CU_MEMCPY_D2H);
-  else
-    omega_cfl_ho[0] = species->omega_cfl[0];
+  omega_cfl_ho[0] = 1/DBL_MAX;
 
-  app->stat.species_omega_cfl_tm += gkyl_time_diff_now_sec(tm);
+  if (!species->info.is_static) {
+    gkyl_array_clear(species->cflrate, 0.0);
+    gkyl_array_clear(rhs, 0.0);
+
+    // Compute the surface expansion of the phase space flux
+    // Note: Each cell stores the *lower* surface expansions of the 
+    // phase space flux, so local_ext range needed to index the output
+    // values of alpha_surf even though we only loop over local ranges
+    // to avoid evaluating quantities such as geometry in ghost cells
+    // where they are not defined.
+    gkyl_dg_calc_gyrokinetic_vars_alpha_surf(species->calc_gk_vars, 
+      &app->local, &species->local, &species->local_ext, 
+      species->phi, species->alpha_surf, species->sgn_alpha_surf, species->const_sgn_alpha);
+
+    gkyl_dg_updater_gyrokinetic_advance(species->slvr, &species->local, 
+      fin, species->cflrate, rhs);
+
+    if (species->collision_id == GKYL_LBO_COLLISIONS)
+      gk_species_lbo_rhs(app, species, &species->lbo, fin, rhs);
+    else if (species->collision_id == GKYL_BGK_COLLISIONS)
+      gk_species_bgk_rhs(app, species, &species->bgk, fin, rhs);
   
+    if (species->has_diffusion)
+      gkyl_dg_updater_diffusion_gyrokinetic_advance(species->diff_slvr, &species->local, 
+        species->diffD, app->gk_geom->jacobgeo_inv, fin, species->cflrate, rhs);
+
+    if (species->radiation_id == GKYL_GK_RADIATION)
+      gk_species_radiation_rhs(app, species, &species->rad, fin, rhs);
+
+    if (species->has_reactions)
+      gk_species_react_rhs(app, species, &species->react, fin, rhs);
+    if (species->has_neutral_reactions)
+      gk_species_react_rhs(app, species, &species->react_neut, fin, rhs);
+  
+    app->stat.nspecies_omega_cfl +=1;
+    struct timespec tm = gkyl_wall_clock();
+    gkyl_array_reduce_range(species->omega_cfl, species->cflrate, GKYL_MAX, &species->local);
+
+    //double omega_cfl_ho[1];
+    if (app->use_gpu)
+      gkyl_cu_memcpy(omega_cfl_ho, species->omega_cfl, sizeof(double), GKYL_CU_MEMCPY_D2H);
+    else 
+      omega_cfl_ho[0] = species->omega_cfl[0];
+
+    app->stat.species_omega_cfl_tm += gkyl_time_diff_now_sec(tm);
+  }
   return app->cfl/omega_cfl_ho[0];
 }
 

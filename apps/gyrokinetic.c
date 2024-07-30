@@ -492,6 +492,7 @@ gk_find_neut_species_idx(const gkyl_gyrokinetic_app *app, const char *nm)
 void
 gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
 {
+  printf("apply ic\n");
   app->tcurr = t0;
   for (int i=0; i<app->num_species; ++i)
     gkyl_gyrokinetic_app_apply_ic_species(app, i, t0);
@@ -503,6 +504,7 @@ gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
   struct gkyl_array *distf_neut[app->num_neut_species];
   for (int i=0; i<app->num_species; ++i) {
     distf[i] = app->species[i].f;
+    gk_species_bflux_rhs(app, &app->species[i], &app->species->bflux, distf[i], distf[i]);
   }
   for (int i=0; i<app->num_neut_species; ++i) {
     distf_neut[i] = app->neut_species[i].f;
@@ -1977,16 +1979,20 @@ forward_euler(gkyl_gyrokinetic_app* app, double tcurr, double dt,
     double dt1 = gk_species_rhs(app, s, fin[i], fout[i]);
     dtmin = fmin(dtmin, dt1);
 
-    // Compute and store (in the ghost cell of of out) the boundary fluxes.
-    // NOTE: this overwrites ghost cells that may be used for sourcing.
-    if (app->update_field || app->field->gkfield_id == GKYL_GK_FIELD_BOLTZMANN)
-      gk_species_bflux_rhs(app, s, &s->bflux, fin[i], fout[i]);
+    if (!app->species[i].info.is_static) {
+      // Compute and store (in the ghost cell of of out) the boundary fluxes.
+      // NOTE: this overwrites ghost cells that may be used for sourcing.
+      if (app->update_field || app->field->gkfield_id == GKYL_GK_FIELD_BOLTZMANN)
+        gk_species_bflux_rhs(app, s, &s->bflux, fin[i], fout[i]);
+    }
   }
 
   // Compute RHS of neutrals.
   for (int i=0; i<app->num_neut_species; ++i) {
     double dt1 = gk_neut_species_rhs(app, &app->neut_species[i], fin_neut[i], fout_neut[i]);
     dtmin = fmin(dtmin, dt1);
+
+    // compute bflux here? 
   }
 
   // Compute plasma source term.
