@@ -91,11 +91,13 @@ gk_species_bflux_rhs(gkyl_gyrokinetic_app *app, const struct gk_species *species
     gkyl_array_copy_range_to_range(bflux->flux_arr[2*j+1], rhs, &bflux->flux_r[2*j+1],
       &species->upper_ghost[j]);
 
-    const char *fmt = "gk_species_bflux_arr_%s_dir%d.gkyl";
-    int sz = gkyl_calc_strlen(fmt, species->info.name, j);
+    const char *fmt = "%s-%s_bflux_arr_dir_%d.gkyl";
+    int sz = gkyl_calc_strlen(fmt, app->name, species->info.name, 2*j);
     char fileNm[sz+1]; // ensures no buffer overflow
-    snprintf(fileNm, sizeof fileNm, fmt, species->info.name, j);
-    gkyl_comm_array_write(app->comm, &bflux->boundary_grid[0], &bflux->flux_r[2*j], 0, bflux->flux_arr[2*j], fileNm); 
+    snprintf(fileNm, sizeof fileNm, fmt, app->name, species->info.name, 2*j);
+    gkyl_comm_array_write(app->comm, &bflux->boundary_grid[2*j], &bflux->flux_r[2*j], 0, bflux->flux_arr[2*j], fileNm);
+    snprintf(fileNm, sizeof fileNm, fmt, app->name, species->info.name, 2*j+1);
+    gkyl_comm_array_write(app->comm, &bflux->boundary_grid[2*j+1], &bflux->flux_r[2*j+1], 0, bflux->flux_arr[2*j+1], fileNm);    
     
     gkyl_dg_updater_moment_gyrokinetic_advance(bflux->integ_moms[2*j], &bflux->flux_r[2*j],
       &bflux->conf_r[2*j], bflux->flux_arr[2*j], bflux->mom_arr[2*j]);

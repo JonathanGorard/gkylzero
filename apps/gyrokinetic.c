@@ -492,7 +492,6 @@ gk_find_neut_species_idx(const gkyl_gyrokinetic_app *app, const char *nm)
 void
 gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
 {
-  printf("apply ic\n");
   app->tcurr = t0;
   for (int i=0; i<app->num_species; ++i)
     gkyl_gyrokinetic_app_apply_ic_species(app, i, t0);
@@ -504,7 +503,20 @@ gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
   struct gkyl_array *distf_neut[app->num_neut_species];
   for (int i=0; i<app->num_species; ++i) {
     distf[i] = app->species[i].f;
-    gk_species_bflux_rhs(app, &app->species[i], &app->species->bflux, distf[i], distf[i]);
+    struct gk_species *s = &app->species[i];
+    if (s->info.is_static) {
+      printf("reading in bflux_arr...\n");
+      // read in bflux assuming 1x
+      const char *fmt = "%s-%s_bflux_arr_dir_%d.gkyl";
+      int sz = gkyl_calc_strlen(fmt, app->name, s->info.name, 0);
+      char fileNm[sz+1]; // ensure no buffer overflow
+      sprintf(fileNm, fmt, app->name, s->info.name, 0);
+      gkyl_grid_sub_array_read(&s->bflux.boundary_grid[0], &s->bflux.flux_r[0], s->bflux.flux_arr[0], fileNm);
+      //gkyl_comm_array_write(app->comm, &s->bflux.boundary_grid[0], &s->bflux.flux_r[0], 0, s->bflux.flux_arr[0], fileNm);
+      sprintf(fileNm, fmt, app->name, s->info.name, 1);
+      gkyl_grid_sub_array_read(&s->bflux.boundary_grid[1], &s->bflux.flux_r[1], s->bflux.flux_arr[1], fileNm);
+      //gkyl_comm_array_write(app->comm, &s->bflux.boundary_grid[1], &s->bflux.flux_r[1], 0, s->bflux.flux_arr[1], fileNm);
+    }
   }
   for (int i=0; i<app->num_neut_species; ++i) {
     distf_neut[i] = app->neut_species[i].f;
@@ -523,6 +535,7 @@ gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
       gk_species_bflux_rhs(app, s, &s->bflux, distf[i], distf[i]);
     }
   }
+  
   calc_field_and_apply_bc(app, 0., distf, distf_neut);
 }
 
@@ -2622,6 +2635,7 @@ gkyl_gyrokinetic_app_read_from_frame(gkyl_gyrokinetic_app *app, int frame)
         gk_species_bflux_rhs(app, s, &s->bflux, distf[i], distf[i]);
       }
     }
+    
     calc_field_and_apply_bc(app, rstat.stime, distf, distf_neut);
   }
 
