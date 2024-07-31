@@ -504,36 +504,9 @@ gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
   for (int i=0; i<app->num_species; ++i) {
     distf[i] = app->species[i].f;
     struct gk_species *s = &app->species[i];
-    if (s->info.is_static) {
-      printf("reading in bflux_arr...\n");
-      // read in bflux assuming 1x
-      const char *fmt = "%s-%s_bflux_arr_dir_%d.gkyl";
-      int sz = gkyl_calc_strlen(fmt, app->name, s->info.name, 0);
-      char fileNm[sz+1]; // ensure no buffer overflow
-      sprintf(fileNm, fmt, app->name, s->info.name, 0);
-      gkyl_grid_sub_array_read(&s->bflux.boundary_grid[0], &s->bflux.flux_r[0], s->bflux.flux_arr[0], fileNm);
-      //gkyl_comm_array_write(app->comm, &s->bflux.boundary_grid[0], &s->bflux.flux_r[0], 0, s->bflux.flux_arr[0], fileNm);
-      sprintf(fileNm, fmt, app->name, s->info.name, 1);
-      gkyl_grid_sub_array_read(&s->bflux.boundary_grid[1], &s->bflux.flux_r[1], s->bflux.flux_arr[1], fileNm);
-      //gkyl_comm_array_write(app->comm, &s->bflux.boundary_grid[1], &s->bflux.flux_r[1], 0, s->bflux.flux_arr[1], fileNm);
-    }
   }
   for (int i=0; i<app->num_neut_species; ++i) {
     distf_neut[i] = app->neut_species[i].f;
-  }
-  if (app->update_field || app->field->gkfield_id == GKYL_GK_FIELD_BOLTZMANN) {
-    for (int i=0; i<app->num_species; ++i) {
-      struct gk_species *s = &app->species[i];
-
-      // Compute advection speeds so we can compute the initial boundary flux.
-      gkyl_dg_calc_gyrokinetic_vars_alpha_surf(s->calc_gk_vars, 
-        &app->local, &s->local, &s->local_ext, app->field->phi_smooth,
-        s->alpha_surf, s->sgn_alpha_surf, s->const_sgn_alpha);
-
-      // Compute and store (in the ghost cell of of out) the boundary fluxes.
-      // NOTE: this overwrites ghost cells that may be used for sourcing.
-      gk_species_bflux_rhs(app, s, &s->bflux, distf[i], distf[i]);
-    }
   }
   
   calc_field_and_apply_bc(app, 0., distf, distf_neut);

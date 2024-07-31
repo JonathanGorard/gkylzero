@@ -172,7 +172,7 @@ gkyl_bc_emission_spectrum_advance(const struct gkyl_bc_emission_spectrum *up,
       
       bc_weighted_delta(inp, up->cdim, up->dir, up->edge, xc, gain, w);
     }
-    printf("w0 %g w1 %g\n", w[0], w[1]);
+
     double effective_delta = w[0]/w[1];
     const double *boundary_flux = gkyl_array_cfetch(flux, midx);
     double *out = gkyl_array_fetch(k, midx);
