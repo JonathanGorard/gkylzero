@@ -132,6 +132,7 @@ static const char *const valid_neut_moment_names[] = {
   "M3i",
   "M3ijk",
   "FiveMoments",
+  "LTEMoments", // internal flag for computing moments (n, V_drift, T/m) for gk_neut_species
   "Integrated", // this is an internal flag, not for passing to moment type
 };
 
@@ -168,11 +169,15 @@ struct gk_species_moment {
       struct gkyl_gyrokinetic_maxwellian_moments *gyrokinetic_maxwellian_moms; 
     };
     struct {
+      struct gkyl_vlasov_lte_moments *vlasov_lte_moms; // updater for computing LTE moments
+    };
+    struct {
       struct gkyl_dg_updater_moment *mcalc; 
     };
   };
   bool is_maxwellian_moms;
   bool is_bimaxwellian_moms;
+  bool is_vlasov_lte_moms;
 };
 
 struct gk_rad_drag {  

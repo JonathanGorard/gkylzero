@@ -101,8 +101,8 @@ create_ctx(void)
 
   double Te = 40.0 * eV; // Electron temperature.
   double Ti = 40.0 * eV; // Ion temperature.
-  double T0 = 40.0 * eV; // Neutral temperature
-  double n0 = 7.0e18; //  Reference number density (1 / m^3).
+  double T0 = 10.0 * eV; // Neutral temperature
+  double n0 = 5.0e18; //  Reference number density (1 / m^3).
 
   double B_axis = 0.5; // Magnetic field axis (simple toroidal coordinates).
   double R0 = 0.85; // Major radius (simple toroidal coordinates).
@@ -116,7 +116,7 @@ create_ctx(void)
 
   // Derived physical quantities (using non-normalized physical units).
   double R = R0 + a0; // Radial coordinate (simple toroidal coordinates).
-  double B0 = B_axis * (R0 / R); // Reference magnetic field strength (Tesla).
+  double B0 = 0.5; //B_axis * (R0 / R); // Reference magnetic field strength (Tesla).
 
   // Coulomb logarithms.
   double log_lambda_elc = 6.6 - 0.5 * log(n0 / 1.0e20) + 1.5 * log(Te / charge_ion);
@@ -144,17 +144,17 @@ create_ctx(void)
   double n_peak = 4.0 * sqrt(5.0) / 3.0 / c_s_src * 0.5 * n_src; // Peak number density.
 
   // Simulation parameters.
-  int Nz = 8; // Cell count (configuration space: z-direction).
-  int Nvpar = 6; // Cell count (velocity space: parallel velocity direction).
-  int Nmu = 4; // Cell count (velocity space: magnetic moment direction).
+  int Nz = 64; // Cell count (configuration space: z-direction).
+  int Nvpar = 16; // Cell count (velocity space: parallel velocity direction).
+  int Nmu = 8; // Cell count (velocity space: magnetic moment direction).
   double Lz = 4.0; // Domain size (configuration space: z-direction).
   double vpar_max_elc = 4.0 * vte; // Domain boundary (electron velocity space: parallel velocity direction).
   double mu_max_elc = (3.0 / 2.0) * 0.5 * mass_elc * pow(4.0 * vte,2) / (2.0 * B0); // Domain boundary (electron velocity space: magnetic moment direction).
   double vpar_max_ion = 4.0 * vti; // Domain boundary (ion velocity space: parallel velocity direction).
   double mu_max_ion = (3.0 / 2.0) * 0.5 * mass_ion * pow(4.0 * vti,2) / (2.0 * B0); // Domain boundary (ion velocity space: magnetic moment direction).
  
-  double t_end = 1000.0e-6; // Final simulation time.
-  int num_frames = 100; // Number of output frames.
+  double t_end = 10.e-6; // Final simulation time.
+  int num_frames = 1; // Number of output frames.
   int int_diag_calc_num = num_frames*100;
   double dt_failure_tol = 1.0e-4; // Minimum allowable fraction of initial time-step.
   int num_failures_max = 20; // Maximum allowable number of consecutive small time-steps.
@@ -496,7 +496,7 @@ main(int argc, char **argv)
     /*   .upper = { .type = GKYL_SPECIES_GK_SHEATH, }, */
     /* }, */
 
-    .num_diag_moments = 5,
+    .num_diag_moments = 0,
     .diag_moments = { "M0", "M1", "M2", "M2par", "M2perp" },
   };
 
@@ -549,7 +549,7 @@ main(int argc, char **argv)
     /*   .upper = { .type = GKYL_SPECIES_GK_SHEATH, }, */
     /* }, */
     
-    .num_diag_moments = 5,
+    .num_diag_moments = 0,
     .diag_moments = { "M0", "M1", "M2", "M2par", "M2perp" },
   };
 
@@ -570,8 +570,18 @@ main(int argc, char **argv)
     },
 
     .react_neut = {
-      .num_react = 0,
+      .num_react = 1,
       .react_type = {
+        { .react_id = GKYL_REACT_IZ,
+          .type_self = GKYL_SELF_DONOR,
+          .ion_id = GKYL_ION_H,
+    	  .elc_nm = "elc",
+          .ion_nm = "ion",
+          .donor_nm = "neut",
+	  .charge_state = 0,
+          .ion_mass = ctx.mass_ion,
+          .elc_mass = ctx.mass_elc,
+        },
         { .react_id = GKYL_REACT_RECOMB,
           .type_self = GKYL_SELF_RECVR,
           .ion_id = GKYL_ION_H,
@@ -603,8 +613,8 @@ main(int argc, char **argv)
                  .aux_ctx = bc_ctx, },
     },
     
-    .num_diag_moments = 3,
-    .diag_moments = { "M0", "M1i", "M2"},
+    .num_diag_moments = 4,
+    .diag_moments = { "M0", "M1i", "M2", "LTEMoments"},
   };
 
   // Field.
