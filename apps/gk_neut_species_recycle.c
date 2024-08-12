@@ -76,7 +76,8 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
     recyc->update[i] = gkyl_bc_emission_spectrum_new(recyc->params->spectrum_model[i],
       recyc->params->yield_model[i], recyc->yield[i], recyc->spectrum[i], emission_dir, recyc->edge,
       cdim, vdim, recyc->impact_species[i]->info.mass, s->info.mass, recyc->impact_buff_r[i],
-      recyc->emit_buff_r, recyc->impact_grid[i], app->poly_order, &app->neut_basis, proj_buffer, app->use_gpu);
+      recyc->emit_buff_r, recyc->impact_grid[i], recyc->emit_grid, app->poly_order,
+      &app->neut_basis, proj_buffer, app->use_gpu);
     
   }
   gkyl_array_release(proj_buffer);
