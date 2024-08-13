@@ -220,7 +220,7 @@ gk_neut_species_react_rhs(gkyl_gyrokinetic_app *app, const struct gk_neut_specie
       gkyl_array_accumulate(rhs, 1.0, react->f_react);
     }
     else if (react->react_id[i] == GKYL_REACT_CX) {
-      // here prim_vars[i] is prim_vars_neut_gk
+      // here prim_vars_cxi[i] is prim_vars_ion
       gkyl_proj_maxwellian_on_basis_prim_mom(react->proj_max, &s->local, &app->local,
         react->moms_ion[i].marr, react->prim_vars_cxi[i], react->f_react);
 
