@@ -15,7 +15,7 @@ gk_neut_species_moment_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_spe
     struct gkyl_vlasov_lte_moments_inp inp_mom = {
       .phase_grid = &s->grid,
       .conf_basis = &app->confBasis,
-      .phase_basis = &app->basis,
+      .phase_basis = &app->neut_basis,
       .conf_range =  &app->local,
       .conf_range_ext = &app->local_ext,
       .vel_range = &s->local_vel,
@@ -25,7 +25,7 @@ gk_neut_species_moment_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_spe
     };
     // Compute (n, V_drift, T/m)
     sm->vlasov_lte_moms = gkyl_vlasov_lte_moments_inew(&inp_mom);
-    sm->num_mom = app->vdim + 2;
+    sm->num_mom = app->vdim + 3;
   }
   else {
     sm->mcalc = gkyl_dg_updater_moment_new(&s->grid, &app->confBasis, 
