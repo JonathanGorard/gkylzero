@@ -78,8 +78,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
   else 
     s->omega_cfl = gkyl_malloc(sizeof(double));
 
-  if (cdim == 1) s->model_id = GKYL_MODEL_DEFAULT;
-  else s->model_id = GKYL_MODEL_GEN_GEO;
+  s->model_id = GKYL_MODEL_GEN_GEO;
 
   if (!s->info.is_static) {
     // allocate additional distribution function arrays for time stepping
@@ -230,7 +229,8 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
   s->bc_buffer_up_fixed = mkarr(app->use_gpu, app->neut_basis.num_basis, buff_sz);
 
   // initialize boundary fluxes for diagnostics and bcs
-  gk_neut_species_bflux_init(app, s, &s->bflux); 
+  if (!s->info.is_static)
+    gk_neut_species_bflux_init(app, s, &s->bflux); 
   
   for (int d=0; d<cdim; ++d) {
     // Copy BCs by default.
