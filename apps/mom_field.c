@@ -111,6 +111,8 @@ moment_field_init(const struct gkyl_moment *mom, const struct gkyl_moment_field 
         bc = mom_fld->bcz;
       
       wv_bc_func_t bc_lower_func;
+
+      void (*bc_lower_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
       if (dir == 0)
         bc_lower_func = mom_fld->bcx_func[0];
       else if (dir == 1)
@@ -119,6 +121,7 @@ moment_field_init(const struct gkyl_moment *mom, const struct gkyl_moment_field 
         bc_lower_func = mom_fld->bcz_func[0];
 
       wv_bc_func_t bc_upper_func;
+      void (*bc_upper_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
       if (dir == 0)
         bc_upper_func = mom_fld->bcx_func[0];
       else if (dir == 1)
