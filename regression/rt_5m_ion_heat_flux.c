@@ -282,6 +282,8 @@ main(int argc, char **argv)
     .type_brag = GKYL_BRAG_UNMAG_FULL,
 
     .bcx = { GKYL_SPECIES_FUNC, GKYL_SPECIES_FUNC },  
+    .bcx_func = { evalIonBcLower, evalIonBcUpper}, 
+  };  
     .bcx_lower_func = evalIonLowerBC,
     .bcx_upper_func = evalIonUpperBC,
   }; 

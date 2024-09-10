@@ -95,24 +95,6 @@ gk_num_mom(int vdim, int mom_id)
   return num_mom;
 }
 
-// CUDA kernel to set pointer to bmag
-// This is required because moment type object lives on device,
-// and so its members cannot be modified without a full __global__ kernel on device.
-__global__
-static void
-gkyl_gyrokinetic_set_bmag_cu_kernel(const struct gkyl_mom_type *momt, const struct gkyl_array *bmag)
-{
-  struct mom_type_gyrokinetic *mom_gyrokinetic = container_of(momt, struct mom_type_gyrokinetic, momt);
-  mom_gyrokinetic->bmag = bmag;
-}
-
-// Host-side wrapper for set_bmag_cu_kernel
-void
-gkyl_gyrokinetic_set_bmag_cu(const struct gkyl_mom_type *momt, const struct gkyl_array *bmag)
-{
-  gkyl_gyrokinetic_set_bmag_cu_kernel<<<1,1>>>(momt, bmag->on_dev);
-}
-
 __global__
 static void
 set_cu_ptrs(struct mom_type_gyrokinetic *mom_gk,
@@ -187,7 +169,8 @@ set_cu_ptrs(struct mom_type_gyrokinetic *mom_gk,
 
 struct gkyl_mom_type*
 gkyl_mom_gyrokinetic_cu_dev_new(const struct gkyl_basis* cbasis, const struct gkyl_basis* pbasis, 
-  const struct gkyl_range* conf_range, double mass, const char *mom)
+  const struct gkyl_range* conf_range, double mass, const struct gkyl_velocity_map* vel_map,
+  const struct gk_geometry *gk_geom, const char *mom)
 {
   assert(cbasis->poly_order == pbasis->poly_order);
 
@@ -211,6 +194,13 @@ gkyl_mom_gyrokinetic_cu_dev_new(const struct gkyl_basis* cbasis, const struct gk
   mom_gk->momt.num_mom = gk_num_mom(vdim, mom_id); // number of moments
 
   mom_gk->mass = mass;
+
+  // Acquire pointers to on_dev objects so memcpy below copies those too.
+  struct gk_geometry *geom_ho = gkyl_gk_geometry_acquire(gk_geom);
+  struct gkyl_velocity_map *vel_map_ho = gkyl_velocity_map_acquire(vel_map);
+  mom_gk->gk_geom = geom_ho->on_dev;
+  mom_gk->vel_map = vel_map_ho->on_dev;
+
   mom_gk->conf_range = *conf_range;
 
   mom_gk->momt.flags = 0;
@@ -228,6 +218,78 @@ gkyl_mom_gyrokinetic_cu_dev_new(const struct gkyl_basis* cbasis, const struct gk
     vdim, poly_order, cv_index[cdim].vdim[vdim]);
 
   mom_gk->momt.on_dev = &mom_gk_cu->momt;
+
+  // Updater should store host pointers.
+  mom_gk->gk_geom = geom_ho; 
+  mom_gk->vel_map = vel_map_ho; 
   
   return &mom_gk->momt;
+}
+
+__global__
+static void
+set_int_cu_ptrs(struct mom_type_gyrokinetic* momt, enum gkyl_basis_type b_type, int vdim,
+  int poly_order, int tblidx)
+{
+  // set kernel pointer
+  switch (b_type) {
+    case GKYL_BASIS_MODAL_SERENDIPITY:
+      momt->momt.kernel = ser_int_mom_kernels[tblidx].kernels[poly_order];
+      break;
+
+    default:
+      assert(false);
+      break;    
+  }
+}
+
+struct gkyl_mom_type*
+gkyl_int_mom_gyrokinetic_cu_dev_new(const struct gkyl_basis* cbasis, const struct gkyl_basis* pbasis, 
+  const struct gkyl_range* conf_range, double mass, const struct gkyl_velocity_map* vel_map,
+  const struct gk_geometry *gk_geom)
+{
+  assert(cbasis->poly_order == pbasis->poly_order);
+
+  struct mom_type_gyrokinetic *momt = (struct mom_type_gyrokinetic*)
+    gkyl_malloc(sizeof(struct mom_type_gyrokinetic));
+  
+  int cdim = cbasis->ndim, pdim = pbasis->ndim, vdim = pdim-cdim;
+  int poly_order = cbasis->poly_order;
+
+  momt->momt.cdim = cdim;
+  momt->momt.pdim = pdim;
+  momt->momt.poly_order = poly_order;
+  momt->momt.num_config = cbasis->num_basis;
+  momt->momt.num_phase = pbasis->num_basis;
+
+  momt->momt.num_mom = vdim+2;
+
+  momt->mass = mass;
+  // Acquire pointers to on_dev objects so memcpy below copies those too.
+  struct gk_geometry *geom_ho = gkyl_gk_geometry_acquire(gk_geom);
+  struct gkyl_velocity_map *vel_map_ho = gkyl_velocity_map_acquire(vel_map);
+  momt->gk_geom = geom_ho->on_dev;
+  momt->vel_map = vel_map_ho->on_dev;
+
+  momt->conf_range = *conf_range;
+
+  momt->momt.flags = 0;
+  GKYL_SET_CU_ALLOC(momt->momt.flags);
+  momt->momt.ref_count = gkyl_ref_count_init(gkyl_gk_mom_free);
+  
+  // copy struct to device
+  struct mom_type_gyrokinetic *momt_cu = (struct mom_type_gyrokinetic*)
+    gkyl_cu_malloc(sizeof(struct mom_type_gyrokinetic));
+  gkyl_cu_memcpy(momt_cu, momt, sizeof(struct mom_type_gyrokinetic), GKYL_CU_MEMCPY_H2D);
+
+  set_int_cu_ptrs<<<1,1>>>(momt_cu, cbasis->b_type,
+    vdim, poly_order, cv_index[cdim].vdim[vdim]);
+
+  momt->momt.on_dev = &momt_cu->momt;
+
+  // Updater should store host pointers.
+  momt->gk_geom = geom_ho; 
+  momt->vel_map = vel_map_ho; 
+  
+  return &momt->momt;
 }

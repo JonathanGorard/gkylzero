@@ -1,12 +1,26 @@
 #pragma once
 
 #include <stdbool.h>
+#include <gkyl_array_rio.h>
 
 // Update status
 struct gkyl_update_status {
   bool success; // status of update
   double dt_actual; // actual time-step taken
   double dt_suggested; // suggested stable time-step
+};
+
+// Status of restart
+struct gkyl_app_restart_status {
+  enum gkyl_array_rio_status io_status; // status of the file read
+  int frame; // frame number of file read
+  double stime; // simulation time at which data was read
+};
+
+// inputs from user for specifying range and communicator to use
+struct gkyl_app_comm_low_inp {
+  struct gkyl_range local_range; // local range over which App operates
+  struct gkyl_comm *comm; // communicator to used
 };
 
 // Boundary conditions on particles
@@ -18,6 +32,11 @@ enum gkyl_species_bc_type {
   GKYL_SPECIES_WEDGE, // specialized "wedge" BCs for RZ-theta
   GKYL_SPECIES_FUNC, // Function boundary conditions
   GKYL_SPECIES_FIXED_FUNC, // Fixed function, time-independent, boundary conditions
+  GKYL_SPECIES_EMISSION, // Emission spectrum BCs
+  GKYL_SPECIES_ZERO_FLUX, // Zero flux BCs; must be applied on both lower and upper BC
+  GKYL_SPECIES_GK_SHEATH, // Gyrokinetic sheath BCs
+  GKYL_SPECIES_RECYCLE, // Recycling BCs
+  GKYL_SPECIES_GK_IWL, // Gyrokinetic inner wall limited.
 };
 
 // Boundary conditions on fields

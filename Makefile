@@ -53,14 +53,24 @@ ifeq ($(CC), nvcc)
        CUDA_LIBS += -lcublas -lcusparse -lcusolver
 endif
 
+# Directory for storing shared data, like ADAS reaction rates and radiation fits
+GKYL_SHARE_DIR ?= "${INSTALL_PREFIX}/gkylzero/share"
+CFLAGS += -DGKYL_SHARE_DIR=$(GKYL_SHARE_DIR)
+
 # Read MPI paths and flags if needed 
 USING_MPI =
+MPI_RPATH = 
 MPI_INC_DIR = zero # dummy
 MPI_LIB_DIR = .
 ifeq (${USE_MPI}, 1)
 	USING_MPI = yes
 	MPI_INC_DIR = ${CONF_MPI_INC_DIR}
 	MPI_LIB_DIR = ${CONF_MPI_LIB_DIR}
+ifdef USING_NVCC
+	MPI_RPATH = -Xlinker "-rpath,${CONF_MPI_LIB_DIR}"
+else
+	MPI_RPATH = -Wl,-rpath,${CONF_MPI_LIB_DIR}
+endif
 	MPI_LIBS = -lmpi
 	CFLAGS += -DGKYL_HAVE_MPI
 endif
@@ -81,23 +91,50 @@ endif
 endif
 endif
 
+# Read CUDSS paths and flags if needed (needs MPI and NVCC)
+USING_CUDSS =
+CUDSS_INC_DIR = zero # dummy
+CUDSS_LIB_DIR = .
+CUDSS_RPATH =
+ifeq (${USE_CUDSS}, 1)
+ifdef USING_NVCC
+	USING_CUDSS = yes
+	CUDSS_INC_DIR = ${CONF_CUDSS_INC_DIR}
+	CUDSS_LIB_DIR = ${CONF_CUDSS_LIB_DIR}
+	CUDSS_RPATH = -Xlinker "-rpath,${CONF_CUDSS_LIB_DIR}"
+	CUDSS_LIBS = -lcudss
+	CFLAGS += -DGKYL_HAVE_CUDSS
+endif
+endif
+
 # Read LUA paths and flags if needed 
 USING_LUA =
+LUA_RPATH = 
 LUA_INC_DIR = zero # dummy
 LUA_LIB_DIR = .
 ifeq (${USE_LUA}, 1)
 	USING_LUA = yes
 	LUA_INC_DIR = ${CONF_LUA_INC_DIR}
 	LUA_LIB_DIR = ${CONF_LUA_LIB_DIR}
+	LUA_RPATH = -Wl,-rpath,${CONF_LUA_LIB_DIR}
 	LUA_LIBS = -l${CONF_LUA_LIB}
 	CFLAGS += -DGKYL_HAVE_LUA
 endif
 
+# Read ADAS paths and flags if needed 
+USING_ADAS =
+ADAS_INC_DIR = zero # dummy
+ADAS_LIB_DIR = .
+ifeq (${USE_ADAS}, 1)
+	USING_ADAS = yes
+	CFLAGS += -DGKYL_HAVE_ADAS
+endif
+
 # Build directory
 ifdef USING_NVCC
-	BUILD_DIR ?= cuda-build
+	BUILD_DIR ?= cubld
 else	
-	BUILD_DIR ?= build
+	BUILD_DIR ?= bld
 endif
 
 # On OSX we should use Accelerate framework
@@ -118,19 +155,19 @@ ifeq ($(UNAME), Darwin)
 	SHFLAGS_INSTALL = ${SHFLAGS} -install_name ${PREFIX}/gkylzero/lib/libgkylzero.so
 endif
 
-# Header files
-HEADERS := $(wildcard minus/*.h) $(wildcard zero/*.h) $(wildcard apps/*.h) $(wildcard amr/*.h) $(wildcard kernels/*/*.h)
+# Header files 
+HEADERS := $(wildcard minus/*.h) $(wildcard zero/*.h) $(wildcard apps/*.h) $(wildcard amr/*.h) $(wildcard kernels/*/*.h) $(wildcard data/adas/*.h)
 # Headers to install
 INSTALL_HEADERS := $(shell ls apps/gkyl_*.h zero/gkyl_*.h  amr/gkyl_*.h | grep -v "priv" | sort)
 INSTALL_HEADERS += $(shell ls minus/*.h)
 
 # all includes
-INCLUDES = -Iminus -Iminus/STC/include -Izero -Iapps -Iamr -Iregression -I${BUILD_DIR} ${KERN_INCLUDES} -I${LAPACK_INC} -I${SUPERLU_INC} -I${MPI_INC_DIR} -I${NCCL_INC_DIR} -I${LUA_INC_DIR}
+INCLUDES = -Iminus -Iminus/STC/include -Izero -Iapps -Iamr -Iregression -I${BUILD_DIR} ${KERN_INCLUDES} -I${LAPACK_INC} -I${SUPERLU_INC} -I${MPI_INC_DIR} -I${NCCL_INC_DIR} -I${CUDSS_INC_DIR} -I${LUA_INC_DIR}
 
 # Directories containing source code
-SRC_DIRS := minus zero apps amr kernels
+SRC_DIRS := minus zero apps amr kernels data/adas
 
-# List of regression and unit tests
+# List of regression and unit test
 REGS := $(patsubst %.c,${BUILD_DIR}/%,$(wildcard regression/rt_*.c))
 AMR_REGS := $(patsubst %.c,${BUILD_DIR}/%,$(wildcard amr_regression/rt_*.c))
 UNITS := $(patsubst %.c,${BUILD_DIR}/%,$(wildcard unit/ctest_*.c))
@@ -148,15 +185,23 @@ UNIT_CU_OBJS =
 # There is some problem with the Vlasov and Maxwell kernels that is causing some unit builds to fail
 ifdef USING_NVCC
 #	UNIT_CU_SRCS = $(shell find unit -name *.cu)
-	UNIT_CU_SRCS = unit/ctest_cusolver.cu unit/ctest_basis_cu.cu unit/ctest_array_cu.cu unit/ctest_mom_vlasov_cu.cu unit/ctest_range_cu.cu unit/ctest_rect_grid_cu.cu unit/ctest_wave_geom_cu.cu unit/ctest_wv_euler_cu.cu unit/ctest_wv_maxwell_cu.cu unit/ctest_wv_ten_moment_cu.cu
+	UNIT_CU_SRCS = unit/ctest_cusolver.cu unit/ctest_alloc_cu.cu unit/ctest_basis_cu.cu unit/ctest_array_cu.cu unit/ctest_mom_vlasov_cu.cu unit/ctest_range_cu.cu unit/ctest_rect_grid_cu.cu unit/ctest_wave_geom_cu.cu unit/ctest_wv_euler_cu.cu unit/ctest_wv_maxwell_cu.cu unit/ctest_wv_ten_moment_cu.cu
+ifdef USING_CUDSS
+	UNIT_CU_SRCS += unit/ctest_cudss.cu
+endif
 	UNIT_CU_OBJS = $(UNIT_CU_SRCS:%=$(BUILD_DIR)/%.o)
 endif
 
 # List of link directories and libraries for unit and regression tests
-EXEC_LIB_DIRS = -L${SUPERLU_LIB_DIR} -L${LAPACK_LIB_DIR} -L${BUILD_DIR} -L${MPI_LIB_DIR} -L${NCCL_LIB_DIR} -L${LUA_LIB_DIR}
-EXEC_EXT_LIBS = -lsuperlu ${LAPACK_LIB} ${CUDA_LIBS} ${MPI_LIBS} ${NCCL_LIBS} ${LUA_LIBS} -lm -lpthread -ldl
+EXEC_LIB_DIRS = -L${SUPERLU_LIB_DIR} -L${LAPACK_LIB_DIR} -L${BUILD_DIR} -L${MPI_LIB_DIR} -L${NCCL_LIB_DIR} -L${CUDSS_LIB_DIR} -L${LUA_LIB_DIR}
+EXEC_EXT_LIBS = -lsuperlu ${LAPACK_LIB} ${CUDA_LIBS} ${MPI_RPATH} ${MPI_LIBS} ${NCCL_LIBS} ${CUDSS_RPATH} ${CUDSS_LIBS} ${LUA_RPATH} ${LUA_LIBS} -lm -lpthread -ldl
 EXEC_LIBS = ${BUILD_DIR}/libgkylzero.so ${EXEC_EXT_LIBS}
+EXEC_INSTALLED_LIBS = ${G0_RPATH} -lgkylzero ${EXEC_EXT_LIBS}
 EXEC_RPATH = 
+
+# Rpath for use in glua exectuable
+G0_LIB_DIR = ${INSTALL_PREFIX}/gkylzero/lib
+G0_RPATH = -Wl,-rpath,${G0_LIB_DIR}
 
 # Build commands for C source
 $(BUILD_DIR)/%.c.o: %.c
@@ -189,9 +234,14 @@ ${BUILD_DIR}/ci/%: ci/%.c ${BUILD_DIR}/libgkylzero.so
 	${CC} ${CFLAGS} ${LDFLAGS} -o $@ $< -I. $(INCLUDES) ${EXEC_LIB_DIRS} ${EXEC_RPATH} ${EXEC_LIBS}
 
 # Lua interpreter for testing Lua regression tests
-${BUILD_DIR}/xglua: regression/xglua.c ${BUILD_DIR}/libgkylzero.so
+${BUILD_DIR}/glua: regression/glua.c ${BUILD_DIR}/libgkylzero.so
 	$(MKDIR_P) ${BUILD_DIR}
 	${CC} ${CFLAGS} ${LDFLAGS} -o $@ $< -I. $(INCLUDES) ${EXEC_LIB_DIRS} ${EXEC_RPATH} ${EXEC_LIBS}
+
+# Lua interpreter for testing Lua regression tests
+${BUILD_DIR}/glua-install: regression/glua.c ${BUILD_DIR}/libgkylzero.so
+	$(MKDIR_P) ${BUILD_DIR}
+	${CC} ${CFLAGS} ${LDFLAGS} -o $@ $< -I. $(INCLUDES) ${EXEC_LIB_DIRS} ${EXEC_INSTALLED_LIBS} 
 
 # Amalgamated header file
 ${BUILD_DIR}/gkylzero.h:
@@ -206,6 +256,10 @@ ifdef USING_NVCC
 # using the -x cu flag
 
 $(BUILD_DIR)/kernels/advection/%.c.o : kernels/advection/%.c
+	$(MKDIR_P) $(dir $@)
+	$(CC) $(CFLAGS) $(NVCC_FLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/kernels/bgk/%.c.o : kernels/bgk/%.c
 	$(MKDIR_P) $(dir $@)
 	$(CC) $(CFLAGS) $(NVCC_FLAGS) $(INCLUDES) -c $< -o $@
 
@@ -246,10 +300,6 @@ $(BUILD_DIR)/kernels/lbo/%.c.o : kernels/lbo/%.c
 	$(CC) $(CFLAGS) $(NVCC_FLAGS) $(INCLUDES) -c $< -o $@
 
 $(BUILD_DIR)/kernels/maxwell/%.c.o : kernels/maxwell/%.c
-	$(MKDIR_P) $(dir $@)
-	$(CC) $(CFLAGS) $(NVCC_FLAGS) $(INCLUDES) -c $< -o $@
-
-$(BUILD_DIR)/kernels/neutral_react/%.c.o : kernels/neutral_react/%.c
 	$(MKDIR_P) $(dir $@)
 	$(CC) $(CFLAGS) $(NVCC_FLAGS) $(INCLUDES) -c $< -o $@
 
@@ -301,6 +351,10 @@ $(BUILD_DIR)/kernels/deflate_zsurf/%.c.o : kernels/deflate_zsurf/%.c
 	$(MKDIR_P) $(dir $@)
 	$(CC) $(CFLAGS) $(NVCC_FLAGS) $(INCLUDES) -c $< -o $@
 
+$(BUILD_DIR)/kernels/positivity_shift/%.c.o : kernels/positivity_shift/%.c
+	$(MKDIR_P) $(dir $@)
+	$(CC) $(CFLAGS) $(NVCC_FLAGS) $(INCLUDES) -c $< -o $@
+
 endif
 
 ## GkylZero Library 
@@ -331,13 +385,16 @@ $(ZERO_SH_INSTALL_LIB): $(OBJS)
 
 .PHONY: all
 all: ${BUILD_DIR}/gkylzero.h ${ZERO_SH_LIB} ## Build libraries and amalgamated header
+	${MKDIR_P} ${INSTALL_PREFIX}/gkylzero/share/adas
+	cp ./data/adas/radiation_fit_parameters.txt ${INSTALL_PREFIX}/gkylzero/share/adas
 
 # Explicit targets to build unit and regression tests
 unit: ${ZERO_SH_LIB} ${UNITS} ${MPI_UNITS} ${LUA_UNITS} ## Build unit tests
+regression: ${ZERO_SH_LIB} ${REGS} regression/rt_arg_parse.h ${BUILD_DIR}/glua ## Build regression tests
 regression: ${ZERO_SH_LIB} ${REGS} regression/rt_arg_parse.h ${BUILD_DIR}/xglua ## Build regression tests
 amr_regression: ${ZERO_SH_LIB} ${AMR_REGS} ## Build AMR regression tests
 ci: ${ZERO_SH_LIB} ${CI} ## Build automated regression system
-xglua: ${BUILD_DIR}/xglua ## Build Lua interpreter
+glua: ${BUILD_DIR}/glua ## Build Lua interpreter
 
 .PHONY: check mpicheck
 # Run all unit tests
@@ -352,12 +409,13 @@ mpicheck: ${MPI_UNITS} ## Build (if needed) and run all unit tests needing MPI
 G0_SHARE_INSTALL_PREFIX=${INSTALL_PREFIX}/gkylzero/share
 SED_REPS_STR=s,G0_SHARE_INSTALL_PREFIX_TAG,${G0_SHARE_INSTALL_PREFIX},g
 
-install: all $(ZERO_SH_INSTALL_LIB) ## Install library and headers
+install: all $(ZERO_SH_INSTALL_LIB) ${BUILD_DIR}/glua ## Install library and headers
 # Construct install directories
 	$(MKDIR_P) ${INSTALL_PREFIX}/gkylzero/include
 	${MKDIR_P} ${INSTALL_PREFIX}/gkylzero/lib
 	${MKDIR_P} ${INSTALL_PREFIX}/gkylzero/bin
 	${MKDIR_P} ${INSTALL_PREFIX}/gkylzero/share
+	${MKDIR_P} ${INSTALL_PREFIX}/gkylzero/share/adas
 # Headers
 	cp ${INSTALL_HEADERS} ${INSTALL_PREFIX}/gkylzero/include
 	./minus/gengkylzeroh.sh > ${INSTALL_PREFIX}/gkylzero/include/gkylzero.h
@@ -369,8 +427,11 @@ install: all $(ZERO_SH_INSTALL_LIB) ## Install library and headers
 	sed ${SED_REPS_STR} Makefile.sample > ${INSTALL_PREFIX}/gkylzero/share/Makefile
 	cp -f regression/rt_arg_parse.h ${INSTALL_PREFIX}/gkylzero/include/rt_arg_parse.h
 	cp -f regression/rt_vlasov_twostream_p2.c ${INSTALL_PREFIX}/gkylzero/share/rt_vlasov_twostream_p2.c
-# Lua wrappers
-	cp -f inf/Moments.lua ${INSTALL_PREFIX}/gkylzero/lib/
+
+install-glua: install ${BUILD_DIR}/glua-install ## Install the glua exectuable
+# glua executable
+	cp -f ${BUILD_DIR}/glua-install ${INSTALL_PREFIX}/gkylzero/bin/glua
+
 
 .PHONY: clean
 clean: ## Clean build output
@@ -378,7 +439,15 @@ clean: ## Clean build output
 
 .PHONY: cleanur
 cleanur: ## Delete the unit and regression test executables
-	rm -rf ${BUILD_DIR}/unit ${BUILD_DIR}/regression ${BUILD_DIR}/amr_regression {BUILD_DIR}/ci ${BUILD_DIR}/xglua
+	rm -rf ${BUILD_DIR}/unit ${BUILD_DIR}/regression ${BUILD_DIR}/ci ${BUILD_DIR}/glua
+
+.PHONY: cleanr
+cleanr: ## Delete the regression test executables
+	rm -rf ${BUILD_DIR}/regression
+
+.PHONY: cleanu
+cleanu: ## Delete the unit test executables
+	rm -rf ${BUILD_DIR}/unit
 
 .PHONY: cleana
 cleana: ## Delete the AMR regression test executables

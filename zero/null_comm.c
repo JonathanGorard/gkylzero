@@ -13,9 +13,13 @@ struct null_comm {
   struct gkyl_rect_decomp *decomp; // pre-computed decomposition
 
   bool use_gpu; // flag to use if this communicator is on GPUs
+  bool sync_corners; // should we sync corners?
+  
   struct gkyl_range grange; // range to "hash" ghost layout
-  cmap_l2sgr l2sgr; // map from long -> skin_ghost_ranges
 
+  cmap_l2sgr l2sgr; // map from long -> skin_ghost_ranges
+  cmap_l2sgr l2sgr_wc; // map from long -> skin_ghost_ranges with corners
+  
   gkyl_mem_buff pbuff; // CUDA buffer for periodic BCs
 };
 
@@ -26,6 +30,7 @@ comm_free(const struct gkyl_ref_count *ref)
   struct null_comm *null_comm = container_of(comm, struct null_comm, base);
 
   cmap_l2sgr_drop(&null_comm->l2sgr);
+  cmap_l2sgr_drop(&null_comm->l2sgr_wc);
   if (null_comm->decomp)
     gkyl_rect_decomp_release(null_comm->decomp);
   gkyl_mem_buff_release(null_comm->pbuff);
@@ -47,11 +52,42 @@ get_size(struct gkyl_comm *comm, int *sz)
 }
 
 static int
-all_reduce(struct gkyl_comm *comm, enum gkyl_elem_type type,
+allreduce(struct gkyl_comm *comm, enum gkyl_elem_type type,
   enum gkyl_array_op op, int nelem, const void *inp,
   void *out)
 {
+  struct null_comm *null_comm = container_of(comm, struct null_comm, base);
+  if (null_comm->use_gpu)
+    gkyl_cu_memcpy(out, inp, gkyl_elem_type_size[type]*nelem, GKYL_CU_MEMCPY_D2D);
+  else
+    memcpy(out, inp, gkyl_elem_type_size[type]*nelem);
+  return 0;
+}
+
+static int
+allreduce_host(struct gkyl_comm *comm, enum gkyl_elem_type type,
+  enum gkyl_array_op op, int nelem, const void *inp,
+  void *out)
+{
+  struct null_comm *null_comm = container_of(comm, struct null_comm, base);
   memcpy(out, inp, gkyl_elem_type_size[type]*nelem);
+  return 0;
+}
+
+static int
+array_allgather(struct gkyl_comm *comm,
+  const struct gkyl_range *local, const struct gkyl_range *global,
+  const struct gkyl_array *array_local, struct gkyl_array *array_global)
+{
+  gkyl_array_copy(array_global, array_local);
+  return 0;
+}
+
+static int
+array_bcast(struct gkyl_comm *comm, const struct gkyl_array *asend,
+  struct gkyl_array *arecv, int root)
+{
+  gkyl_array_copy(arecv, asend);
   return 0;
 }
 
@@ -76,7 +112,7 @@ apply_periodic_bc(const struct skin_ghost_ranges *sgr, char *data,
 }
 
 static int
-array_per_sync(struct gkyl_comm *comm, const struct gkyl_range *local,
+array_per_no_corners_sync(struct gkyl_comm *comm, const struct gkyl_range *local,
   const struct gkyl_range *local_ext,
   int nper_dirs, const int *per_dirs, struct gkyl_array *array)
 {
@@ -109,17 +145,78 @@ array_per_sync(struct gkyl_comm *comm, const struct gkyl_range *local,
 }
 
 static int
+array_per_with_corners_sync(struct gkyl_comm *comm, const struct gkyl_range *local,
+  const struct gkyl_range *local_ext,
+  int nper_dirs, const int *per_dirs, struct gkyl_array *array)
+{
+  struct null_comm *null_comm = container_of(comm, struct null_comm, base);
+
+  int nghost[GKYL_MAX_DIM];
+  for (int d=0; d<null_comm->decomp->ndim; ++d)
+    nghost[d] = local_ext->upper[d]-local->upper[d];
+  
+  long lkey = gkyl_range_idx(&null_comm->grange, nghost);
+
+  if (!cmap_l2sgr_contains(&null_comm->l2sgr_wc, lkey)) {
+    struct skin_ghost_ranges sgr;
+    skin_ghost_ranges_with_corners_init(&sgr, local_ext, nghost);
+    cmap_l2sgr_insert(&null_comm->l2sgr_wc, lkey, sgr);
+  }
+
+  const cmap_l2sgr_value *val = cmap_l2sgr_get(&null_comm->l2sgr_wc, lkey);
+  long max_vol_esnz = val->second.max_vol*array->esznc;
+  
+  if (max_vol_esnz > gkyl_mem_buff_size(null_comm->pbuff))
+    gkyl_mem_buff_resize(null_comm->pbuff, max_vol_esnz);
+
+  char *data = gkyl_mem_buff_data(null_comm->pbuff);
+
+  for (int d=0; d<nper_dirs; ++d)
+    apply_periodic_bc(&val->second, data, per_dirs[d], array);
+
+  return 0;
+}
+
+static int
+array_per_sync(struct gkyl_comm *comm, const struct gkyl_range *local,
+  const struct gkyl_range *local_ext,
+  int nper_dirs, const int *per_dirs, struct gkyl_array *array)
+{
+  struct null_comm *null_comm = container_of(comm, struct null_comm, base);  
+  array_per_no_corners_sync(comm, local, local_ext, nper_dirs, per_dirs, array);
+  if (null_comm->sync_corners)
+    array_per_with_corners_sync(comm, local, local_ext, nper_dirs, per_dirs, array);
+
+  return 0;
+}
+
+static int
 barrier(struct gkyl_comm *comm)
 {
   return 0;
 }
 
-static int
-array_write(struct gkyl_comm *comm,
-  const struct gkyl_rect_grid *grid, const struct gkyl_range *range,
+static int array_write(struct gkyl_comm *comm,
+  const struct gkyl_rect_grid *grid,
+  const struct gkyl_range *range,
+  const struct gkyl_array_meta *meta,
   const struct gkyl_array *arr, const char *fname)
 {
-  return gkyl_grid_sub_array_write(grid, range, arr, fname);
+  return gkyl_grid_sub_array_write(grid, range, meta, arr, fname);
+}
+
+static int
+array_read(struct gkyl_comm *comm,
+  const struct gkyl_rect_grid *grid, const struct gkyl_range *range,
+  struct gkyl_array *arr, const char *fname)
+{
+  struct gkyl_rect_grid fgrid;
+  int status = gkyl_grid_sub_array_read(&fgrid, range, arr, fname);
+  if (status == 0) {
+    if (!gkyl_rect_grid_cmp(grid, &fgrid))
+      status = 1;
+  }
+  return status;
 }
 
 static struct gkyl_comm*
@@ -130,34 +227,13 @@ extend_comm(const struct gkyl_comm *comm, const struct gkyl_range *erange)
   struct gkyl_rect_decomp *ext_decomp = gkyl_rect_decomp_extended_new(erange, null_comm->decomp);
   struct gkyl_comm *ext_comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
       .decomp = ext_decomp,
-      .use_gpu = null_comm->use_gpu
+      .use_gpu = null_comm->use_gpu,
+      .sync_corners = null_comm->sync_corners
     }
   );
   gkyl_rect_decomp_release(ext_decomp);
   
   return ext_comm;
-}
-
-struct gkyl_comm*
-gkyl_null_comm_new(void)
-{
-  struct null_comm *comm = gkyl_malloc(sizeof *comm);
-
-  comm->use_gpu = false;
-  comm->l2sgr = cmap_l2sgr_init();
-  comm->pbuff = gkyl_mem_buff_new(1);
-  comm->decomp = 0;
-  
-  comm->base.get_rank = get_rank;
-  comm->base.get_size = get_size;
-  comm->base.all_reduce = all_reduce;
-  comm->base.gkyl_array_sync = array_sync;
-  comm->base.barrier = barrier;
-  comm->base.gkyl_array_write = array_write;
-
-  comm->base.ref_count = gkyl_ref_count_init(comm_free);
-
-  return &comm->base;
 }
 
 struct gkyl_comm*
@@ -173,7 +249,9 @@ gkyl_null_comm_inew(const struct gkyl_null_comm_inp *inp)
   gkyl_range_init(&comm->grange, inp->decomp->ndim, lower, upper);
 
   comm->use_gpu = inp->use_gpu;
+  comm->sync_corners = inp->sync_corners;
   comm->l2sgr = cmap_l2sgr_init();
+  comm->l2sgr_wc = cmap_l2sgr_init();
 
   if (comm->use_gpu)
     comm->pbuff = gkyl_mem_buff_cu_new(1024); // will be reallocated
@@ -182,14 +260,33 @@ gkyl_null_comm_inew(const struct gkyl_null_comm_inp *inp)
 
   comm->base.get_rank = get_rank;
   comm->base.get_size = get_size;
-  comm->base.all_reduce = all_reduce;
+  comm->base.allreduce = allreduce;
+  comm->base.allreduce_host = allreduce_host;
+  comm->base.gkyl_array_allgather = array_allgather;
+  comm->base.gkyl_array_bcast = array_bcast;
+  comm->base.gkyl_array_bcast_host = array_bcast;
   comm->base.gkyl_array_sync = array_sync;
   comm->base.gkyl_array_per_sync = array_per_sync;
   comm->base.barrier = barrier;
   comm->base.gkyl_array_write = array_write;
+  comm->base.gkyl_array_read = array_read;
   comm->base.extend_comm = extend_comm;
 
   comm->base.ref_count = gkyl_ref_count_init(comm_free);
 
   return &comm->base;
 }
+
+struct gkyl_comm*
+gkyl_null_comm_new(void)
+{
+  struct gkyl_comm *comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
+      .decomp = 0,
+      .use_gpu = false,
+      .sync_corners = false
+    }
+  );
+
+  return comm;
+}
+

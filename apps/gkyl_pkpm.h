@@ -8,17 +8,6 @@
 
 #include <stdbool.h>
 
-// Lower-level inputs: in general this does not need to be set by the
-// user. It is needed when the App is being created on a sub-range of
-// the global range, and is meant for use in higher-level drivers that
-// use MPI or other parallel mechanism.
-struct gkyl_pkpm_low_inp {
-  // local range over which App operates
-  struct gkyl_range local_range;
-  // communicator to used
-  struct gkyl_comm *comm;
-};
-
 // Parameters for species collisions
 struct gkyl_pkpm_collisions {
   enum gkyl_collision_id collision_id; // type of collisions (see gkyl_eqn_type.h)
@@ -146,7 +135,7 @@ struct gkyl_pkpm {
   // this should not be set by typical user-facing code but only by
   // higher-level drivers
   bool has_low_inp; // should one use low-level inputs?
-  struct gkyl_pkpm_low_inp low_inp; // low-level inputs  
+  struct gkyl_app_comm_low_inp low_inp; // low-level inputs  
 };
 
 // Simulation statistics
@@ -347,6 +336,65 @@ void gkyl_pkpm_app_write_field_energy(gkyl_pkpm_app* app);
  * @param app App object.
  */
 void gkyl_pkpm_app_stat_write(gkyl_pkpm_app* app);
+
+/**
+ * Initialize field from file
+ *
+ * @param app App object
+ * @param fname file to read
+ */
+struct gkyl_app_restart_status
+gkyl_pkpm_app_from_file_field(gkyl_pkpm_app *app, const char *fname);
+
+/**
+ * Initialize pkpm species from file
+ *
+ * @param app App object
+ * @param sidx gk species index
+ * @param fname file to read
+ */
+struct gkyl_app_restart_status 
+gkyl_pkpm_app_from_file_species(gkyl_pkpm_app *app, int sidx,
+  const char *fname);
+
+/**
+ * Initialize pkpm fluid species from file
+ *
+ * @param app App object
+ * @param sidx gk species index
+ * @param fname file to read
+ */
+struct gkyl_app_restart_status 
+gkyl_pkpm_app_from_file_fluid_species(gkyl_pkpm_app *app, int sidx,
+  const char *fname);
+
+/**
+ * Initialize field from frame
+ *
+ * @param app App object
+ * @param frame frame to read
+ */
+struct gkyl_app_restart_status
+gkyl_pkpm_app_from_frame_field(gkyl_pkpm_app *app, int frame);
+
+/**
+ * Initialize pkpm species and fluid species from frame
+ *
+ * @param app App object
+ * @param sidx gk species index
+ * @param frame frame to read
+ */
+struct gkyl_app_restart_status
+gkyl_pkpm_app_from_frame_species(gkyl_pkpm_app *app, int sidx, int frame);
+
+/**
+ * Initialize the pkpm app from a specific frame.
+ *
+ * @param app App object
+ * @param frame frame to read
+ */
+struct gkyl_app_restart_status
+gkyl_pkpm_app_read_from_frame(gkyl_pkpm_app *app, int frame);
 
 /**
  * Write output to console: this is mainly for diagnostic messages the

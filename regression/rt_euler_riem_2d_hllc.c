@@ -362,14 +362,34 @@ main(int argc, char **argv)
 
   // Initial and final simulation times.
   double t_curr = 0.0, t_end = ctx.t_end;
-
+  int frame = 0;  
   // Create trigger for IO.
   int num_frames = ctx.num_frames;
   struct gkyl_tm_trigger io_trig = { .dt = t_end / num_frames };
 
-  // Initialize simulation.
-  gkyl_moment_app_apply_ic(app, t_curr);
-  write_data(&io_trig, app, t_curr, false);
+  struct gkyl_app_restart_status status;  
+  // initialize simulation
+  if (app_args.is_restart) {
+
+    status = gkyl_moment_app_from_file_species(
+      app, 0, "data/regression/euler_riem_2d_hllc-euler_0.gkyl");
+    
+    if (status.io_status != GKYL_ARRAY_RIO_SUCCESS) {
+      gkyl_moment_app_cout(app, stderr,
+        "*** Failed to read restart file! (%s)\n",
+        gkyl_array_rio_status_msg(status.io_status)
+      );
+      goto freeresources;
+    }
+    frame = status.frame;
+    t_curr = status.stime;
+  }
+  else {
+    // Initialize simulation.
+    gkyl_moment_app_apply_ic(app, t_curr);
+    write_data(&io_trig, app, t_curr, false);
+    gkyl_moment_app_calc_integrated_mom(app, t_curr);
+  }  
 
   // Compute estimate of maximum stable time-step.
   double dt = gkyl_moment_app_max_dt(app);
@@ -383,6 +403,8 @@ main(int argc, char **argv)
     gkyl_moment_app_cout(app, stdout, "Taking time-step %ld at t = %g ...", step, t_curr);
     struct gkyl_update_status status = gkyl_moment_update(app, dt);
     gkyl_moment_app_cout(app, stdout, " dt = %g\n", status.dt_actual);
+
+    gkyl_moment_app_calc_integrated_mom(app, t_curr);
     
     if (!status.success) {
       gkyl_moment_app_cout(app, stdout, "** Update method failed! Aborting simulation ....\n");
@@ -429,6 +451,8 @@ main(int argc, char **argv)
   gkyl_moment_app_cout(app, stdout, "Source updates took %g secs\n", stat.sources_tm);
   gkyl_moment_app_cout(app, stdout, "Total updates took %g secs\n", stat.total_tm);
 
+  freeresources:  
+  
   // Free resources after simulation completion.
   gkyl_wv_eqn_release(euler);
   gkyl_rect_decomp_release(decomp);

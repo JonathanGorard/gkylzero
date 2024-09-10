@@ -425,14 +425,13 @@ main(int argc, char **argv)
   int NY = APP_ARGS_CHOOSE(app_args.xcells[1], ctx.Ny);
 
   // Electron/ion equations.
-  struct gkyl_wv_eqn *elc_ten_moment = gkyl_wv_ten_moment_new(ctx.k0_elc, false);
-  struct gkyl_wv_eqn *ion_ten_moment = gkyl_wv_ten_moment_new(ctx.k0_ion, false);
+  struct gkyl_wv_eqn *elc_ten_moment = gkyl_wv_ten_moment_new(ctx.k0_elc, true, app_args.use_gpu);
+  struct gkyl_wv_eqn *ion_ten_moment = gkyl_wv_ten_moment_new(ctx.k0_ion, true, app_args.use_gpu);
 
   struct gkyl_moment_species elc = {
     .name = "elc",
     .charge = ctx.charge_elc, .mass = ctx.mass_elc,
     .equation = elc_ten_moment,
-    .has_grad_closure = true,
     .evolve = true,
     .init = evalElcInit,
     .ctx = &ctx,
@@ -442,7 +441,6 @@ main(int argc, char **argv)
     .name = "ion",
     .charge = ctx.charge_ion, .mass = ctx.mass_ion,
     .equation = ion_ten_moment,
-    .has_grad_closure = true,
     .evolve = true,
     .init = evalIonInit,
     .ctx = &ctx,
@@ -496,21 +494,24 @@ main(int argc, char **argv)
   if (app_args.use_mpi) {
     comm = gkyl_mpi_comm_new( &(struct gkyl_mpi_comm_inp) {
         .mpi_comm = MPI_COMM_WORLD,
-        .decomp = decomp
+        .decomp = decomp,
+        .sync_corners = true
       }
     );
   }
   else {
     comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
         .decomp = decomp,
-        .use_gpu = app_args.use_gpu
+        .use_gpu = app_args.use_gpu,
+        .sync_corners = true
       }
     );
   }
 #else
   comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
       .decomp = decomp,
-      .use_gpu = app_args.use_gpu
+      .use_gpu = app_args.use_gpu,
+      .sync_corners = true
     }
   );
 #endif
