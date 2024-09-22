@@ -43,8 +43,7 @@ int gkyl_comm_get_size(struct gkyl_comm *comm, int *sz);
  * @param cuts Output cuts in each direction.
  * @return error code: 0 for success
  */
-static int
-gkyl_comm_get_cuts(struct gkyl_comm *comm, int *cuts);
+int gkyl_comm_get_cuts(struct gkyl_comm *comm, int *cuts);
 
 
 /**
