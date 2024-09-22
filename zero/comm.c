@@ -29,6 +29,14 @@ gkyl_comm_get_size(struct gkyl_comm *pcomm, int *sz)
 }
 
 int
+gkyl_comm_get_cuts(struct gkyl_comm *pcomm, int *cuts)
+{
+  struct gkyl_comm_priv *comm = container_of(pcomm, struct gkyl_comm_priv, pub_comm);
+  return comm->get_cuts(pcomm, cuts);
+}
+
+
+int
 gkyl_comm_allreduce(struct gkyl_comm *pcomm, enum gkyl_elem_type type,
   enum gkyl_array_op op, int nelem, const void *inp, void *out)
 {

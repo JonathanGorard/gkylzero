@@ -129,6 +129,15 @@ get_size(struct gkyl_comm *comm, int *sz)
 }
 
 static int
+get_cuts(struct gkyl_comm *comm, int *cuts)
+{
+  struct null_comm *null_comm = container_of(comm, struct null_comm, priv_comm.pub_comm);
+
+  for (int d=0; d<null_comm->decomp->ndim; d++) cuts[d] = 1;
+  return 0;
+}
+
+static int
 allreduce(struct gkyl_comm *comm, enum gkyl_elem_type type,
   enum gkyl_array_op op, int nelem, const void *inp, void *out)
 {
@@ -381,6 +390,7 @@ gkyl_null_comm_inew(const struct gkyl_null_comm_inp *inp)
 
   comm->priv_comm.get_rank = get_rank;
   comm->priv_comm.get_size = get_size;
+  comm->priv_comm.get_cuts = get_cuts;
   comm->priv_comm.allreduce = allreduce;
   comm->priv_comm.allreduce_host = allreduce_host;
   comm->priv_comm.gkyl_array_allgather = array_allgather;

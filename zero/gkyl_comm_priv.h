@@ -8,6 +8,9 @@ typedef int (*get_rank_t)(struct gkyl_comm *comm, int *rank);
 // Get number of ranks
 typedef int (*get_size_t)(struct gkyl_comm *comm, int *sz);
 
+// Get cuts.
+typedef int (*get_cuts_t)(struct gkyl_comm *comm, int *cuts);
+
 // "Reduce" all elements of @a type in array @a data and store output in @a out
 typedef int (*allreduce_t)(struct gkyl_comm *comm, enum gkyl_elem_type type,
   enum gkyl_array_op op, int nelem, const void *inp, void *out);
@@ -81,6 +84,7 @@ struct gkyl_comm_priv {
   
   get_rank_t get_rank; // get local rank function.
   get_size_t get_size; // get number of ranks.
+  get_cuts_t get_cuts; // get number of cuts in each direction.
   barrier_t barrier; // barrier.
   allreduce_t allreduce; // all reduce function
   allreduce_t allreduce_host; // ?? all reduce using the host (MPI) communicator

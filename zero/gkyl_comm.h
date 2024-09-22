@@ -33,7 +33,19 @@ int gkyl_comm_get_rank(struct gkyl_comm *comm, int *rank);
  * @param rank On output, the rank
  * @return error code: 0 for success
  */
+
 int gkyl_comm_get_size(struct gkyl_comm *comm, int *sz);
+/**
+ * If the comm has a decomp associated with it, return the cuts in each
+ * direction that were used to create that decomp.
+ *
+ * @param comm Communicator.
+ * @param cuts Output cuts in each direction.
+ * @return error code: 0 for success
+ */
+static int
+gkyl_comm_get_cuts(struct gkyl_comm *comm, int *cuts);
+
 
 /**
  * All reduce values across domains.
