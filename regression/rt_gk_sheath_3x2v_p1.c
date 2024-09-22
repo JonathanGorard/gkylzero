@@ -484,16 +484,21 @@ main(int argc, char **argv)
     .upper = {  ctx.vpar_max_elc, ctx.mu_max_elc},
     .cells = { cells_v[0], cells_v[1] },
     .polarization_density = ctx.n0,
-
-    .projection = {
-      .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM,
-      .density = evalDensityInit,
-      .ctx_density = &ctx,
-      .upar = evalUparInit,
-      .ctx_upar = &ctx,
-      .temp = evalTempElcInit,
-      .ctx_temp = &ctx,
+    .init_from_file = {
+      .type = GKYL_IC_IMPORT_F,
+      .file_name = "gk_sheath_2x2v_p1-elc_0.gkyl",
+      // .conf_scale = ic_conf_fac,
+      // .conf_scale_ctx = &ctx,
     },
+    // .projection = {
+    //   .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM,
+    //   .density = evalDensityInit,
+    //   .ctx_density = &ctx,
+    //   .upar = evalUparInit,
+    //   .ctx_upar = &ctx,
+    //   .temp = evalTempElcInit,
+    //   .ctx_temp = &ctx,
+    // },
     .collisions =  {
       .collision_id = GKYL_LBO_COLLISIONS,
       .self_nu = evalNuElcInit,
@@ -537,16 +542,21 @@ main(int argc, char **argv)
     .upper = {  ctx.vpar_max_ion, ctx.mu_max_ion},
     .cells = { cells_v[0], cells_v[1] },
     .polarization_density = ctx.n0,
-
-    .projection = {
-      .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM, 
-      .density = evalDensityInit,
-      .ctx_density = &ctx,
-      .upar = evalUparInit,
-      .ctx_upar = &ctx,
-      .temp = evalTempIonInit,
-      .ctx_temp = &ctx,
+    .init_from_file = {
+      .type = GKYL_IC_IMPORT_F,
+      .file_name = "gk_sheath_2x2v_p1-ion_0.gkyl",
+      // .conf_scale = ic_conf_fac,
+      // .conf_scale_ctx = &ctx,
     },
+    // .projection = {
+    //   .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM, 
+    //   .density = evalDensityInit,
+    //   .ctx_density = &ctx,
+    //   .upar = evalUparInit,
+    //   .ctx_upar = &ctx,
+    //   .temp = evalTempIonInit,
+    //   .ctx_temp = &ctx,
+    // },
     .collisions =  {
       .collision_id = GKYL_LBO_COLLISIONS,
       .self_nu = evalNuIonInit,
