@@ -78,6 +78,8 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
   else 
     s->omega_cfl = gkyl_malloc(sizeof(double));
 
+  s->model_id = GKYL_MODEL_CANONICAL_PB;
+  s->react_neut = (struct gk_react) { };
   if (!s->info.is_static) {
     // allocate additional distribution function arrays for time stepping
     s->f1 = mkarr(app->use_gpu, app->neut_basis.num_basis, s->local_ext.volume);
@@ -91,26 +93,66 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     gkyl_cart_modal_serendip(&surf_basis, pdim-1, app->poly_order);
     gkyl_cart_modal_tensor(&surf_quad_basis, pdim-1, app->poly_order);
 
-    // always 3v
-    int alpha_surf_sz = 3*surf_basis.num_basis; 
-    int sgn_alpha_surf_sz = 3*surf_quad_basis.num_basis; // sign(alpha) is store at quadrature points
+    // Begin canonical pb
+    s->hamil = mkarr(app->use_gpu, app->basis.num_basis, s->local_ext.volume);
+    s->hamil_host = s->hamil;
+
+    // Allocate arrays for specified metric inverse
+    s->h_ij_inv = app->gk_geom->gij; 
+
+    // Allocate arrays for specified metric determinant
+    s->det_h = app->gk_geom->jacobgeo;
+    s->det_h_host = s->det_h;
+
+    // Call updater to evaluate hamiltonian
+    struct gkyl_dg_gk_neut_hamil* hamil_calc = gkyl_dg_gk_neut_hamil_new(s->grid, app->confBasis, app->use_gpu);
+    gkyl_gk_neut_hamil_calc(hamil_calc, s->local, app->local, s->h_ij_inv, s->hamil);
+
+    if (app->use_gpu) {
+      s->hamil_host = mkarr(false, app->basis.num_basis, s->local_ext.volume);
+      s->h_ij_inv_host = mkarr(false, app->confBasis.num_basis*cdim*(cdim+1)/2, app->local_ext.volume);
+      s->det_h_host = mkarr(false, app->confBasis.num_basis, app->local_ext.volume);
+      gkyl_array_copy(s->h_ij_inv_host, s->h_ij_inv);
+      gkyl_array_copy(s->det_h_host, s->det_h);
+      gkyl_array_copy(s->hamil_host, s->hamil);
+    }
+
+    // Need to figure out size of alpha_surf and sgn_alpha_surf by finding size of surface basis set 
+    struct gkyl_basis surf_basis, surf_quad_basis;
+    gkyl_cart_modal_serendip(&surf_basis, pdim-1, app->poly_order);
+    gkyl_cart_modal_tensor(&surf_quad_basis, pdim-1, app->poly_order);
+
+    // always 2*cdim
+    int alpha_surf_sz = (2*cdim)*surf_basis.num_basis; 
+    int sgn_alpha_surf_sz = (2*cdim)*surf_quad_basis.num_basis; // sign(alpha) is store at quadrature points
 
     // allocate arrays to store fields: 
-    // 1. alpha_surf (surface phase space flux)
+    // 1. alpha_surf (surface phase space velocity)
     // 2. sgn_alpha_surf (sign(alpha_surf) at quadrature points)
     // 3. const_sgn_alpha (boolean for if sign(alpha_surf) is a constant, either +1 or -1)
     s->alpha_surf = mkarr(app->use_gpu, alpha_surf_sz, s->local_ext.volume);
     s->sgn_alpha_surf = mkarr(app->use_gpu, sgn_alpha_surf_sz, s->local_ext.volume);
-    s->const_sgn_alpha = mk_int_arr(app->use_gpu, 3, s->local_ext.volume);
-    // 4. cotangent vectors e^i = g^ij e_j 
-    s->cot_vec = mkarr(app->use_gpu, 9*app->confBasis.num_basis, app->local_ext.volume);
+    s->const_sgn_alpha = mk_int_arr(app->use_gpu, (2*cdim), s->local_ext.volume);
 
     // Pre-compute alpha_surf, sgn_alpha_surf, const_sgn_alpha, and cot_vec since they are time-independent
-    struct gkyl_dg_calc_vlasov_gen_geo_vars *calc_vars = gkyl_dg_calc_vlasov_gen_geo_vars_new(&s->grid, 
-      &app->confBasis, &app->neut_basis, app->gk_geom, app->use_gpu);
-    gkyl_dg_calc_vlasov_gen_geo_vars_alpha_surf(calc_vars, &app->local, &s->local, &s->local_ext, 
+    struct gkyl_dg_calc_canonical_pb_vars *calc_vars = gkyl_dg_calc_canonical_pb_vars_new(&s->grid, 
+      &app->confBasis, &app->basis, app->use_gpu);
+    gkyl_dg_calc_canonical_pb_vars_alpha_surf(calc_vars, &app->local, &s->local, &s->local_ext, s->hamil,
       s->alpha_surf, s->sgn_alpha_surf, s->const_sgn_alpha);
-    gkyl_dg_calc_vlasov_gen_geo_vars_cot_vec(calc_vars, &app->local, s->cot_vec);
+    gkyl_dg_calc_canonical_pb_vars_release(calc_vars);
+
+    struct gkyl_dg_canonical_pb_auxfields aux_inp = {.hamil = s->hamil, .alpha_surf = s->alpha_surf, 
+      .sgn_alpha_surf = s->sgn_alpha_surf, .const_sgn_alpha = s->const_sgn_alpha};
+
+    //create solver
+    s->slvr = gkyl_dg_updater_vlasov_new(&s->grid, &app->confBasis, &app->basis, 
+      &app->local, &s->local_vel, &s->local, is_zero_flux, s->model_id, s->field_id, &aux_inp, app->use_gpu);
+    
+    // for reactions
+    if (s->info.react_neut.num_react) {
+      gk_neut_species_react_init(app, s, s->info.react_neut, &s->react_neut);
+    }
+
   }
 
   // by default, we do not have zero-flux boundary conditions in any direction
@@ -150,8 +192,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     }
   }
 
-  s->model_id = GKYL_MODEL_GEN_GEO;
-  s->react_neut = (struct gk_react) { };
+
   if (!s->info.is_static) {
     struct gkyl_dg_vlasov_auxfields aux_inp = {.field = 0, .cot_vec = s->cot_vec, 
       .alpha_surf = s->alpha_surf, .sgn_alpha_surf = s->sgn_alpha_surf, .const_sgn_alpha = s->const_sgn_alpha };
@@ -168,7 +209,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     }
   }
 
-  // allocate date for density 
+  // allocate data for density 
   gk_neut_species_moment_init(app, s, &s->m0, "M0");
   // allocate data for integrated moments
   gk_neut_species_moment_init(app, s, &s->integ_moms, "Integrated");

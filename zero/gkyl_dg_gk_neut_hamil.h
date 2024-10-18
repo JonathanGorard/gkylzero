@@ -22,8 +22,7 @@ typedef struct gkyl_dg_gk_neut_hamil gkyl_dg_gk_neut_hamil;
  */
 struct gkyl_dg_gk_neut_hamil* 
 gkyl_dg_gk_neut_hamil_new(const struct gkyl_rect_grid *phase_grid,
-  const struct gkyl_basis *conf_basis, const struct gkyl_basis *vel_basis, 
-  bool use_gpu);
+  const struct gkyl_basis *conf_basis, bool use_gpu);
 
 /**
  * Create new updater to compute relativistic variables on
@@ -31,7 +30,7 @@ gkyl_dg_gk_neut_hamil_new(const struct gkyl_rect_grid *phase_grid,
  */
 struct gkyl_dg_gk_neut_hamil* 
 gkyl_dg_gk_neut_hamil_cu_dev_new(const struct gkyl_rect_grid *phase_grid,
-  const struct gkyl_basis *conf_basis, const struct gkyl_basis *vel_basis);
+  const struct gkyl_basis *conf_basis);
 
 /**
  * Compute the Hamiltonian
@@ -42,7 +41,8 @@ gkyl_dg_gk_neut_hamil_cu_dev_new(const struct gkyl_rect_grid *phase_grid,
  * @param gij     Input array (6-vector) of geometric coefficients
  * @param hamil   Output array of Hamiltonian in phase space grid
  */
-void gkyl_dg_gk_neut_hamil_calc(struct gkyl_dg_gk_neut_hamil *up, 
+void gkyl_dg_gk_neut_hamil_calc(struct gkyl_dg_gk_neut_hamil *up,
+  const struct gkyl_range *conf_range, const struct gkyl_range *phase_range,
   const struct gkyl_array* gij, struct gkyl_array* hamil);
 
 /**
@@ -56,5 +56,6 @@ void gkyl_dg_gk_neut_hamil_release(struct gkyl_dg_gk_neut_hamil *up);
  * Host-side wrappers for sr vars operations on device
  */
 
-void gkyl_dg_gk_neut_hamil_calc_cu(struct gkyl_dg_gk_neut_hamil *up, 
+void gkyl_dg_gk_neut_hamil_calc_cu(struct gkyl_dg_gk_neut_hamil *up,
+  const struct gkyl_range *conf_range, const struct gkyl_range *phase_range,
   const struct gkyl_array* gij, struct gkyl_array* hamil);

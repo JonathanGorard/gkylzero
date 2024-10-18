@@ -10,7 +10,7 @@
 
 gkyl_dg_gk_neut_hamil*
 gkyl_dg_gk_neut_hamil_new(const struct gkyl_rect_grid *phase_grid,
-  const struct gkyl_basis *conf_basis, const struct gkyl_basis *vel_basis, bool use_gpu)
+  const struct gkyl_basis *conf_basis, bool use_gpu)
 {
 #ifdef GKYL_HAVE_CUDA
   if(use_gpu) {
@@ -21,14 +21,12 @@ gkyl_dg_gk_neut_hamil_new(const struct gkyl_rect_grid *phase_grid,
   gkyl_dg_gk_neut_hamil *up = gkyl_malloc(sizeof(*up));
 
   up->phase_grid = *phase_grid;
-
   int cdim = conf_basis->ndim;
+  int vdim = cdim; // same as cdim for gk_neut species 
   int poly_order = conf_basis->poly_order;
   enum gkyl_basis_type b_type = conf_basis->b_type;
+
   up->poly_order = poly_order;
-
-  int vdim = vel_basis->ndim;
-
   up->calc_hamil = choose_kern(b_type, cdim, vdim, poly_order);
 
   up->flags = 0;
@@ -38,12 +36,13 @@ gkyl_dg_gk_neut_hamil_new(const struct gkyl_rect_grid *phase_grid,
   return up;
 }
 
-void gkyl_gk_neut_hamil_calc(struct gkyl_dg_gk_neut_hamil *up, 
+void gkyl_gk_neut_hamil_calc(struct gkyl_dg_gk_neut_hamil *up,
+  const struct gkyl_range *conf_range, const struct gkyl_range *phase_range,
   const struct gkyl_array* gij, struct gkyl_array* hamil)
 {
 #ifdef GKYL_HAVE_CUDA
   if (gkyl_array_is_cu_dev(gamma)) {
-    return gkyl_gk_neut_hamil_calc_cu(up, gij, hamil);
+    return gkyl_gk_neut_hamil_calc_cu(up, conf_range, phase_range, gij, hamil);
   }
 #endif
 
