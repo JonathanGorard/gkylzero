@@ -26,7 +26,6 @@ gkyl_dg_gk_neut_hamil_new(const struct gkyl_rect_grid *phase_grid,
   int poly_order = conf_basis->poly_order;
   enum gkyl_basis_type b_type = conf_basis->b_type;
 
-  up->poly_order = poly_order;
   up->calc_hamil = choose_kern(b_type, cdim, vdim, poly_order);
 
   up->flags = 0;
