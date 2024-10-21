@@ -16,6 +16,9 @@
 void
 gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struct gk_neut_species *s)
 {
+  // call basis here. phase basis lives in species.
+  // gkyl_basis_modal_tensor
+  
   int cdim = app->cdim, vdim = app->vdim+1; // neutral species are 3v
   int pdim = cdim+vdim;
 
@@ -69,6 +72,9 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
   // allocate distribution function array for initialization and I/O
   s->f = mkarr(app->use_gpu, app->neut_basis.num_basis, s->local_ext.volume);
 
+  // example for removing use_gpu if statements
+  /*   struct gkyl_array *npol = use_gpu? mkarr(use_gpu, basis.num_basis, localRange_ext.volume)
+       : gkyl_array_acquire(npol_ho);*/
   s->f_host = s->f;
   if (app->use_gpu)
     s->f_host = mkarr(false, app->neut_basis.num_basis, s->local_ext.volume);
@@ -97,23 +103,16 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     s->hamil = mkarr(app->use_gpu, app->basis.num_basis, s->local_ext.volume);
     s->hamil_host = s->hamil;
 
-    // Allocate arrays for specified metric inverse
-    s->h_ij_inv = app->gk_geom->gij; 
-
-    // Allocate arrays for specified metric determinant
-    s->det_h = app->gk_geom->jacobgeo;
-    s->det_h_host = s->det_h;
-
+    // write out the hamiltonian here and check for values!
+    
+    gkyl_grid_sub_array_write(&s->grid, &s->local, 0,  s->hamil, "hamil.gkyl");
+    
     // Call updater to evaluate hamiltonian
     struct gkyl_dg_gk_neut_hamil* hamil_calc = gkyl_dg_gk_neut_hamil_new(&s->grid, &app->confBasis, app->use_gpu);
-    gkyl_dg_gk_neut_hamil_calc(hamil_calc, &s->local, &app->local, s->h_ij_inv, s->hamil);
+    gkyl_dg_gk_neut_hamil_calc(hamil_calc, &app->local, &s->local, app->gk_geom->gij, s->hamil);
 
     if (app->use_gpu) {
       s->hamil_host = mkarr(false, app->basis.num_basis, s->local_ext.volume);
-      s->h_ij_inv_host = mkarr(false, app->confBasis.num_basis*cdim*(cdim+1)/2, app->local_ext.volume);
-      s->det_h_host = mkarr(false, app->confBasis.num_basis, app->local_ext.volume);
-      gkyl_array_copy(s->h_ij_inv_host, s->h_ij_inv);
-      gkyl_array_copy(s->det_h_host, s->det_h);
       gkyl_array_copy(s->hamil_host, s->hamil);
     }
 

@@ -54,7 +54,7 @@ void gkyl_dg_gk_neut_hamil_calc(struct gkyl_dg_gk_neut_hamil *up,
     long loc_conf = gkyl_range_idx(conf_range, iter.idx);
     long loc_phase = gkyl_range_idx(phase_range, iter.idx);
 
-    double *gij_d = gkyl_array_cfetch(gij, loc_conf);
+    const double *gij_d = gkyl_array_cfetch(gij, loc_conf);
     double *hamil_d = gkyl_array_fetch(hamil, loc_phase);
 
     up->calc_hamil(xc, up->phase_grid.dx, gij_d, hamil_d);
