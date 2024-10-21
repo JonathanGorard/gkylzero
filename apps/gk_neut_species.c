@@ -105,8 +105,8 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     s->det_h_host = s->det_h;
 
     // Call updater to evaluate hamiltonian
-    struct gkyl_dg_gk_neut_hamil* hamil_calc = gkyl_dg_gk_neut_hamil_new(s->grid, app->confBasis, app->use_gpu);
-    gkyl_gk_neut_hamil_calc(hamil_calc, s->local, app->local, s->h_ij_inv, s->hamil);
+    struct gkyl_dg_gk_neut_hamil* hamil_calc = gkyl_dg_gk_neut_hamil_new(&s->grid, &app->confBasis, app->use_gpu);
+    gkyl_dg_gk_neut_hamil_calc(hamil_calc, &s->local, &app->local, s->h_ij_inv, s->hamil);
 
     if (app->use_gpu) {
       s->hamil_host = mkarr(false, app->basis.num_basis, s->local_ext.volume);
@@ -116,11 +116,6 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
       gkyl_array_copy(s->det_h_host, s->det_h);
       gkyl_array_copy(s->hamil_host, s->hamil);
     }
-
-    // Need to figure out size of alpha_surf and sgn_alpha_surf by finding size of surface basis set 
-    struct gkyl_basis surf_basis, surf_quad_basis;
-    gkyl_cart_modal_serendip(&surf_basis, pdim-1, app->poly_order);
-    gkyl_cart_modal_tensor(&surf_quad_basis, pdim-1, app->poly_order);
 
     // always 2*cdim
     int alpha_surf_sz = (2*cdim)*surf_basis.num_basis; 
@@ -140,18 +135,6 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     gkyl_dg_calc_canonical_pb_vars_alpha_surf(calc_vars, &app->local, &s->local, &s->local_ext, s->hamil,
       s->alpha_surf, s->sgn_alpha_surf, s->const_sgn_alpha);
     gkyl_dg_calc_canonical_pb_vars_release(calc_vars);
-
-    struct gkyl_dg_canonical_pb_auxfields aux_inp = {.hamil = s->hamil, .alpha_surf = s->alpha_surf, 
-      .sgn_alpha_surf = s->sgn_alpha_surf, .const_sgn_alpha = s->const_sgn_alpha};
-
-    //create solver
-    s->slvr = gkyl_dg_updater_vlasov_new(&s->grid, &app->confBasis, &app->basis, 
-      &app->local, &s->local_vel, &s->local, is_zero_flux, s->model_id, s->field_id, &aux_inp, app->use_gpu);
-    
-    // for reactions
-    if (s->info.react_neut.num_react) {
-      gk_neut_species_react_init(app, s, s->info.react_neut, &s->react_neut);
-    }
 
   }
 
@@ -192,10 +175,9 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     }
   }
 
-
   if (!s->info.is_static) {
-    struct gkyl_dg_vlasov_auxfields aux_inp = {.field = 0, .cot_vec = s->cot_vec, 
-      .alpha_surf = s->alpha_surf, .sgn_alpha_surf = s->sgn_alpha_surf, .const_sgn_alpha = s->const_sgn_alpha };
+    struct gkyl_dg_canonical_pb_auxfields aux_inp = {.hamil = s->hamil, .alpha_surf = s->alpha_surf, 
+      .sgn_alpha_surf = s->sgn_alpha_surf, .const_sgn_alpha = s->const_sgn_alpha};
     // Set field type and model id for neutral species in GK system and create solver
     s->field_id = GKYL_FIELD_NULL;
     s->slvr = gkyl_dg_updater_vlasov_new(&s->grid, &app->confBasis, &app->neut_basis, 
@@ -453,10 +435,17 @@ gk_neut_species_release(const gkyl_gyrokinetic_app* app, const struct gk_neut_sp
     gkyl_array_release(s->fnew);
     gkyl_array_release(s->cflrate);
 
+    gkyl_array_release(s->hamil);
+    gkyl_array_release(s->h_ij_inv);
+    gkyl_array_release(s->det_h);
     gkyl_array_release(s->alpha_surf);
     gkyl_array_release(s->sgn_alpha_surf);
     gkyl_array_release(s->const_sgn_alpha);
-    gkyl_array_release(s->cot_vec);
+    if (app->use_gpu){
+      gkyl_array_release(s->hamil_host);
+      gkyl_array_release(s->h_ij_inv_host);
+      gkyl_array_release(s->det_h_host);
+    }
 
     // release equation object and solver
     gkyl_dg_eqn_release(s->eqn_vlasov);

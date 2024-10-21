@@ -35,7 +35,7 @@ gkyl_dg_gk_neut_hamil_new(const struct gkyl_rect_grid *phase_grid,
   return up;
 }
 
-void gkyl_gk_neut_hamil_calc(struct gkyl_dg_gk_neut_hamil *up,
+void gkyl_dg_gk_neut_hamil_calc(struct gkyl_dg_gk_neut_hamil *up,
   const struct gkyl_range *conf_range, const struct gkyl_range *phase_range,
   const struct gkyl_array* gij, struct gkyl_array* hamil)
 {
