@@ -100,19 +100,18 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     gkyl_cart_modal_tensor(&surf_quad_basis, pdim-1, app->poly_order);
 
     // Begin canonical pb
-    s->hamil = mkarr(app->use_gpu, app->basis.num_basis, s->local_ext.volume);
+    s->hamil = mkarr(app->use_gpu, app->neut_basis.num_basis, s->local_ext.volume);
     s->hamil_host = s->hamil;
-
-    // write out the hamiltonian here and check for values!
-    
-    gkyl_grid_sub_array_write(&s->grid, &s->local, 0,  s->hamil, "hamil.gkyl");
     
     // Call updater to evaluate hamiltonian
     struct gkyl_dg_gk_neut_hamil* hamil_calc = gkyl_dg_gk_neut_hamil_new(&s->grid, &app->confBasis, app->use_gpu);
     gkyl_dg_gk_neut_hamil_calc(hamil_calc, &app->local, &s->local, app->gk_geom->gij, s->hamil);
 
+    // write out the hamiltonian here and check for values! 
+    gkyl_grid_sub_array_write(&s->grid, &s->local, 0,  s->hamil, "hamil.gkyl");
+    
     if (app->use_gpu) {
-      s->hamil_host = mkarr(false, app->basis.num_basis, s->local_ext.volume);
+      s->hamil_host = mkarr(false, app->neut_basis.num_basis, s->local_ext.volume);
       gkyl_array_copy(s->hamil_host, s->hamil);
     }
 
@@ -130,7 +129,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
 
     // Pre-compute alpha_surf, sgn_alpha_surf, const_sgn_alpha, and cot_vec since they are time-independent
     struct gkyl_dg_calc_canonical_pb_vars *calc_vars = gkyl_dg_calc_canonical_pb_vars_new(&s->grid, 
-      &app->confBasis, &app->basis, app->use_gpu);
+      &app->confBasis, &app->neut_basis, app->use_gpu);
     gkyl_dg_calc_canonical_pb_vars_alpha_surf(calc_vars, &app->local, &s->local, &s->local_ext, s->hamil,
       s->alpha_surf, s->sgn_alpha_surf, s->const_sgn_alpha);
     gkyl_dg_calc_canonical_pb_vars_release(calc_vars);
