@@ -60,7 +60,13 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
     sp->reactivity_ignition_temperature = mom_sp->reactivity_ignition_temperature;
     sp->reactivity_reaction_rate = mom_sp->reactivity_reaction_rate;
   }
-    
+
+  if (mom_sp->has_einstein_medium) {
+    sp->has_einstein_medium = true;
+
+    sp->medium_gas_gamma = mom_sp->medium_gas_gamma;
+    sp->medium_kappa = mom_sp->medium_kappa;
+  }
   sp->scheme_type = mom->scheme_type;
 
   // choose default limiter
@@ -166,6 +172,9 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
         bc = mom_sp->bcz;
 
       wv_bc_func_t bc_lower_func;
+
+      void (*bc_lower_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
+
       if (dir == 0)
         bc_lower_func = mom_sp->bcx_func[0];
       else if (dir == 1)
@@ -174,6 +183,9 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
         bc_lower_func = mom_sp->bcz_func[0];
 
       wv_bc_func_t bc_upper_func;
+
+      void (*bc_upper_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
+
       if (dir == 0)
         bc_upper_func = mom_sp->bcx_func[1];
       else if (dir == 1)
@@ -273,6 +285,12 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
       ctx = mom_sp->app_accel_ctx;
     sp->proj_app_accel = gkyl_fv_proj_new(&app->grid, 2, GKYL_MOM_APP_NUM_APPLIED_ACCELERATION,
       mom_sp->app_accel_func, ctx);
+
+    if (mom_sp->app_accel_ctx) {
+      ctx = mom_sp->app_accel_ctx;
+    }
+
+    sp->proj_app_accel = gkyl_fv_proj_new(&app->grid, 2, GKYL_MOM_APP_NUM_APPLIED_ACCELERATION, mom_sp->app_accel_func, ctx);
   }
 
   sp->nT_source = mkarr(false, 2, app->local_ext.volume);

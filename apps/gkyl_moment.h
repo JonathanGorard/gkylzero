@@ -11,6 +11,14 @@
 
 #include <time.h>
 
+// number of components that various applied functions should return
+enum {
+  GKYL_MOM_APP_NUM_APPLIED_CURRENT = 3,
+  GKYL_MOM_APP_NUM_EXT_EM = 6,
+  GKYL_MOM_APP_NUM_APPLIED_ACCELERATION = 3,
+  GKYL_MOM_APP_NUM_NT_SOURCE = 2
+};
+
 // Parameters for moment species
 struct gkyl_moment_species {
   char name[128]; // species name
@@ -40,6 +48,10 @@ struct gkyl_moment_species {
   double reactivity_ignition_temperature; // Ignition temperature for reactive sources.
   double reactivity_reaction_rate; // Reaction rate for reactive sources.
 
+  bool has_einstein_medium; // Run with coupled fluid-Einstein sources in plane-symmetric spacetimes.
+  double medium_gas_gamma; // Adiabatic index for coupled fluid-Einstein sources in plane-symmetric spacetimes.
+  double medium_kappa; // Stress-energy prefactor for coupled fluid-Einstein sources in plane-symmetric spacetimes.
+
   int evolve; // evolve species? 1-yes, 0-no
   bool force_low_order_flux; // should  we force low-order flux?
 
@@ -62,6 +74,15 @@ struct gkyl_moment_species {
 
   // for function BCs these should be set
   wv_bc_func_t bcx_func[2], bcy_func[2], bcz_func[2];  
+  // pointer to boundary condition functions along x
+  void (*bcx_lower_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
+  void (*bcx_upper_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
+  // pointer to boundary condition functions along y
+  void (*bcy_lower_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
+  void (*bcy_upper_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
+  // pointer to boundary condition functions along z
+  void (*bcz_lower_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
+  void (*bcz_upper_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
 };
 
 // Parameter for EM field
@@ -98,6 +119,15 @@ struct gkyl_moment_field {
   enum gkyl_field_bc_type bcx[2], bcy[2], bcz[2];
   // for function BCs these should be set
   wv_bc_func_t bcx_func[2], bcy_func[2], bcz_func[2];
+  // pointer to boundary condition functions along x
+  void (*bcx_lower_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double* skin, double* GKYL_RESTRICT ghost, void* ctx);
+  void (*bcx_upper_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double* skin, double* GKYL_RESTRICT ghost, void* ctx);
+  // pointer to boundary condition functions along y
+  void (*bcy_lower_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double* skin, double* GKYL_RESTRICT ghost, void* ctx);
+  void (*bcy_upper_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double* skin, double* GKYL_RESTRICT ghost, void* ctx);
+  // pointer to boundary condition functions along z
+  void (*bcz_lower_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double* skin, double* GKYL_RESTRICT ghost, void* ctx);
+  void (*bcz_upper_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double* skin, double* GKYL_RESTRICT ghost, void* ctx);
 };
 
 // Choices of schemes to use in the fluid solver
