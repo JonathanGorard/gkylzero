@@ -16,6 +16,7 @@ gkyl_proj_maxwellian_on_basis_lab_mom_cu_ker(const struct gkyl_rect_grid grid,
   const struct gkyl_array* GKYL_RESTRICT phase_weights, const int *p2c_qidx,
   const struct gkyl_array* GKYL_RESTRICT moms, struct gkyl_array* GKYL_RESTRICT fmax)
 {
+  double f_floor = 1.e-40;
   int pdim = phase_r.ndim, cdim = conf_r.ndim;
   int vdim = pdim-cdim;
 
@@ -67,7 +68,10 @@ gkyl_proj_maxwellian_on_basis_lab_mom_cu_ker(const struct gkyl_rect_grid grid,
       vtsq[n] = (m2_n - den*usq)/(den*vdim);
 
       // Amplitude of the exponential.
-      exp_amp[n] = den/sqrt(pow(2.0*GKYL_PI*vtsq[n], vdim));
+      if ((den > 0.) && (vtsq[n]>0.))
+         exp_amp[n] = den/sqrt(pow(2.0*GKYL_PI*vtsq[n], vdim));
+      else
+         exp_amp[n] = 0.0;
     }
 
     gkyl_rect_grid_cell_center(&grid, pidx, xc);
@@ -94,7 +98,7 @@ gkyl_proj_maxwellian_on_basis_lab_mom_cu_ker(const struct gkyl_rect_grid grid,
       for (int d=0; d<vdim; ++d)
         efact += pow(xmu[cdim+d]-udrift[cqidx][d],2);
 
-      double fmax_o = exp_amp[cqidx]*exp(-efact/(2.0*vtsq[cqidx]));
+      double fmax_o = vtsq[cqidx] > 0.0 ? f_floor + exp_amp[cqidx]*exp(-efact/(2.0*vtsq[cqidx])) : f_floor;
 
       double tmp = phase_w[n]*fmax_o;
       for (int k=0; k<num_phase_basis; ++k)
@@ -114,6 +118,7 @@ gkyl_proj_maxwellian_on_basis_prim_mom_cu_ker(const struct gkyl_rect_grid grid,
   const struct gkyl_array* GKYL_RESTRICT moms, const struct gkyl_array* GKYL_RESTRICT prim_moms,
   struct gkyl_array* GKYL_RESTRICT fmax)
 {
+  double f_floor = 1.e-40;
   int pdim = phase_r.ndim, cdim = conf_r.ndim;
   int vdim = pdim-cdim;
 
@@ -158,7 +163,10 @@ gkyl_proj_maxwellian_on_basis_prim_mom_cu_ker(const struct gkyl_rect_grid grid,
         vtsq_o[n] += vtsq_d[k]*b_ord[k];
       }
       // Amplitude of the exponential.
-      expamp_o[n] = m0_o/sqrt(pow(2.0*GKYL_PI*vtsq_o[n], vdim));
+      if ((m0_o > 0.) && (vtsq_o[n]>0.))
+         expamp_o[n] = m0_o/sqrt(pow(2.0*GKYL_PI*vtsq_o[n], vdim));
+      else
+         expamp_o[n] = 0.;
     }
 
     gkyl_rect_grid_cell_center(&grid, pidx, xc);
@@ -185,7 +193,7 @@ gkyl_proj_maxwellian_on_basis_prim_mom_cu_ker(const struct gkyl_rect_grid grid,
       for (int d=0; d<vdim; ++d)
         efact += pow(xmu[cdim+d]-udrift_o[cqidx][d],2);
 
-      double fmax_o = expamp_o[cqidx]*exp(-efact/(2.0*vtsq_o[cqidx]));
+      double fmax_o = vtsq_o[cqidx] > 0.0 ? f_floor + expamp_o[cqidx]*exp(-efact/(2.0*vtsq_o[cqidx])) : f_floor;
 
       double tmp = phase_w[n]*fmax_o;
       for (int k=0; k<num_phase_basis; ++k)
@@ -197,14 +205,15 @@ gkyl_proj_maxwellian_on_basis_prim_mom_cu_ker(const struct gkyl_rect_grid grid,
 
 __global__ static void
 gkyl_proj_gkmaxwellian_on_basis_lab_mom_cu_ker(const struct gkyl_rect_grid grid,
-  const struct gkyl_range phase_r, const struct gkyl_range conf_r,
+  const struct gkyl_range phase_r, const struct gkyl_range conf_r, struct gkyl_range vel_r,
   const struct gkyl_array* GKYL_RESTRICT conf_basis_at_ords, 
   const struct gkyl_array* GKYL_RESTRICT phase_basis_at_ords, 
   const struct gkyl_array* GKYL_RESTRICT phase_ordinates, 
   const struct gkyl_array* GKYL_RESTRICT phase_weights, const int *p2c_qidx,
   const struct gkyl_array* GKYL_RESTRICT moms, const struct gkyl_array* GKYL_RESTRICT bmag,
-  const struct gkyl_array* GKYL_RESTRICT jacob_tot, double mass,
-  struct gkyl_array* GKYL_RESTRICT fmax)
+  const struct gkyl_array* GKYL_RESTRICT jacob_tot,
+  struct gkyl_array* GKYL_RESTRICT vmap, struct gkyl_basis* GKYL_RESTRICT vmap_basis,
+  double mass, struct gkyl_array* GKYL_RESTRICT fmax)
 {
   double fJacB_floor = 1.e-40;
   int pdim = phase_r.ndim, cdim = conf_r.ndim;
@@ -221,7 +230,7 @@ gkyl_proj_gkmaxwellian_on_basis_lab_mom_cu_ker(const struct gkyl_rect_grid grid,
   double exp_amp[27], upar[27], vtsq[27], bfield[27];
 
   double xc[GKYL_MAX_DIM], xmu[GKYL_MAX_DIM] = {0.};
-  int pidx[GKYL_MAX_DIM], cidx[GKYL_MAX_CDIM];
+  int pidx[GKYL_MAX_DIM], cidx[GKYL_MAX_CDIM], vidx[2];
 
   for(unsigned long tid = threadIdx.x + blockIdx.x*blockDim.x;
       tid < phase_r.volume; tid += blockDim.x*gridDim.x) {
@@ -278,13 +287,22 @@ gkyl_proj_gkmaxwellian_on_basis_lab_mom_cu_ker(const struct gkyl_rect_grid grid,
     const double *phase_w = (const double *) phase_weights->data;
     const double *phaseb_o = (const double *) phase_basis_at_ords->data;
   
+    for (unsigned int d=cdim; d<pdim; d++) vidx[d-cdim] = pidx[d];
+    long vlinidx = gkyl_range_idx(&vel_r, vidx);
+    const double *vmap_d = (const double *) gkyl_array_cfetch(vmap, vlinidx);
+
     // compute Maxwellian at phase-space quadrature nodes
     for (int n=0; n<tot_phase_quad; ++n) {
 
       int cqidx = p2c_qidx[n];
+      const double *xcomp_d = (const double *) gkyl_array_cfetch(phase_ordinates, n);
 
-      comp_to_phys(pdim, (const double *) gkyl_array_cfetch(phase_ordinates, n),
-        grid.dx, xc, &xmu[0]);
+      // Convert comp velocity coordinate to phys velocity coord.
+      double xcomp[1];
+      for (int vd=0; vd<vdim; vd++) {
+        xcomp[0] = xcomp_d[cdim+vd];
+        xmu[cdim+vd] = vmap_basis->eval_expand(xcomp, vmap_d+vd*vmap_basis->num_basis);
+      }
 
       double efact = 0.0;
       // vpar term.
@@ -292,7 +310,7 @@ gkyl_proj_gkmaxwellian_on_basis_lab_mom_cu_ker(const struct gkyl_rect_grid grid,
       // mu term (only for 2v, vdim_phys=3).
       efact += (vdim_phys-1)*xmu[cdim+1]*bfield[cqidx]/mass;
 
-      double fmax_o = fJacB_floor+exp_amp[cqidx]*exp(-efact/(2.0*vtsq[cqidx]));
+      double fmax_o = vtsq[cqidx] > 0.0 ?  fJacB_floor+exp_amp[cqidx]*exp(-efact/(2.0*vtsq[cqidx])): fJacB_floor;
 
       double tmp = phase_w[n]*fmax_o;
       for (int k=0; k<num_phase_basis; ++k)
@@ -303,13 +321,14 @@ gkyl_proj_gkmaxwellian_on_basis_lab_mom_cu_ker(const struct gkyl_rect_grid grid,
 
 __global__ static void
 gkyl_proj_gkmaxwellian_on_basis_prim_mom_cu_ker(const struct gkyl_rect_grid grid,
-  const struct gkyl_range phase_r, const struct gkyl_range conf_r,
+  const struct gkyl_range phase_r, const struct gkyl_range conf_r, struct gkyl_range vel_r,
   const struct gkyl_array* GKYL_RESTRICT conf_basis_at_ords, 
   const struct gkyl_array* GKYL_RESTRICT phase_basis_at_ords, 
   const struct gkyl_array* GKYL_RESTRICT phase_ordinates, 
   const struct gkyl_array* GKYL_RESTRICT phase_weights, const int *p2c_qidx,
-  const struct gkyl_array* GKYL_RESTRICT moms, const struct gkyl_array* GKYL_RESTRICT prim_moms,
+  const struct gkyl_array* GKYL_RESTRICT prim_moms,
   const struct gkyl_array* GKYL_RESTRICT bmag, const struct gkyl_array* GKYL_RESTRICT jacob_tot,
+  struct gkyl_array* GKYL_RESTRICT vmap, struct gkyl_basis* GKYL_RESTRICT vmap_basis,
   double mass, struct gkyl_array* GKYL_RESTRICT fmax)
 {
   double fJacB_floor = 1.e-40;
@@ -327,20 +346,20 @@ gkyl_proj_gkmaxwellian_on_basis_prim_mom_cu_ker(const struct gkyl_rect_grid grid
   double expamp_o[27], upar_o[27], vtsq_o[27], bmag_o[27];
 
   double xc[GKYL_MAX_DIM], xmu[GKYL_MAX_DIM] = {0.};
-  int pidx[GKYL_MAX_DIM], cidx[GKYL_MAX_CDIM];
+  int pidx[GKYL_MAX_DIM], cidx[GKYL_MAX_CDIM], vidx[2];
 
   for(unsigned long tid = threadIdx.x + blockIdx.x*blockDim.x;
       tid < phase_r.volume; tid += blockDim.x*gridDim.x) {
     gkyl_sub_range_inv_idx(&phase_r, tid, pidx);
 
     // get conf-space linear index.
-    for (unsigned int k = 0; k < conf_r.ndim; k++) cidx[k] = pidx[k];
+    for (unsigned int k = 0; k < cdim; k++) cidx[k] = pidx[k];
     long lincC = gkyl_range_idx(&conf_r, cidx);
 
-    const double *m0_d = (const double *) gkyl_array_cfetch(moms, lincC);
     const double *prim_moms_d = (const double *) gkyl_array_cfetch(prim_moms, lincC);
-    const double *upar_d = prim_moms_d;
-    const double *vtsq_d = &prim_moms_d[num_conf_basis];
+    const double *m0_d = prim_moms_d;
+    const double *upar_d = &prim_moms_d[num_conf_basis];
+    const double *vtsq_d = &prim_moms_d[2*num_conf_basis];
     const double *bmag_d = (const double *) gkyl_array_cfetch(bmag, lincC);
     const double *jactot_d = (const double *) gkyl_array_cfetch(jacob_tot, lincC);
 
@@ -379,13 +398,22 @@ gkyl_proj_gkmaxwellian_on_basis_prim_mom_cu_ker(const struct gkyl_rect_grid grid
     const double *phase_w = (const double *) phase_weights->data;
     const double *phaseb_o = (const double *) phase_basis_at_ords->data;
   
+    for (unsigned int d=cdim; d<pdim; d++) vidx[d-cdim] = pidx[d];
+    long vlinidx = gkyl_range_idx(&vel_r, vidx);
+    const double *vmap_d = (const double *) gkyl_array_cfetch(vmap, vlinidx);
+
     // compute Maxwellian at phase-space quadrature nodes
     for (int n=0; n<tot_phase_quad; ++n) {
 
       int cqidx = p2c_qidx[n];
+      const double *xcomp_d = (const double *) gkyl_array_cfetch(phase_ordinates, n);
 
-      comp_to_phys(pdim, (const double *) gkyl_array_cfetch(phase_ordinates, n),
-        grid.dx, xc, &xmu[0]);
+      // Convert comp velocity coordinate to phys velocity coord.
+      double xcomp[1];
+      for (int vd=0; vd<vdim; vd++) {
+        xcomp[0] = xcomp_d[cdim+vd];
+        xmu[cdim+vd] = vmap_basis->eval_expand(xcomp, vmap_d+vd*vmap_basis->num_basis);
+      }
 
       double efact = 0.0;
       // vpar term.
@@ -393,7 +421,7 @@ gkyl_proj_gkmaxwellian_on_basis_prim_mom_cu_ker(const struct gkyl_rect_grid grid
       // mu term (only for 2v, vdim_phys=3).
       efact += (vdim_phys-1)*xmu[cdim+1]*bmag_o[cqidx]/mass;
 
-      double fmax_o = fJacB_floor+expamp_o[cqidx]*exp(-efact/(2.0*vtsq_o[cqidx]));
+      double fmax_o = vtsq_o[cqidx] > 0.0 ? fJacB_floor+expamp_o[cqidx]*exp(-efact/(2.0*vtsq_o[cqidx])) : fJacB_floor;
 
       double tmp = phase_w[n]*fmax_o;
       for (int k=0; k<num_phase_basis; ++k)
@@ -433,23 +461,29 @@ gkyl_proj_gkmaxwellian_on_basis_lab_mom_cu(const gkyl_proj_maxwellian_on_basis *
   const struct gkyl_array *moms, const struct gkyl_array *bmag,
   const struct gkyl_array *jacob_tot, double mass, struct gkyl_array *fmax)
 {
+  const struct gkyl_velocity_map *gvm = up->vel_map;
+
   int nblocks = phase_r->nblocks, nthreads = phase_r->nthreads;
   gkyl_proj_gkmaxwellian_on_basis_lab_mom_cu_ker<<<nblocks, nthreads>>>
-    (up->grid, *phase_r, *conf_r, up->conf_basis_at_ords->on_dev, up->basis_at_ords->on_dev,
-     up->ordinates->on_dev, up->weights->on_dev, up->p2c_qidx,
-     moms->on_dev, bmag->on_dev, jacob_tot->on_dev, mass, fmax->on_dev);
+    (up->grid, *phase_r, *conf_r, gvm->local_ext_vel, up->conf_basis_at_ords->on_dev,
+     up->basis_at_ords->on_dev, up->ordinates->on_dev, up->weights->on_dev, up->p2c_qidx,
+     moms->on_dev, bmag->on_dev, jacob_tot->on_dev,
+     gvm->vmap->on_dev, gvm->vmap_basis, mass, fmax->on_dev);
 }
 
 void
 gkyl_proj_gkmaxwellian_on_basis_prim_mom_cu(const gkyl_proj_maxwellian_on_basis *up,
   const struct gkyl_range *phase_r, const struct gkyl_range *conf_r,
-  const struct gkyl_array *moms, const struct gkyl_array *prim_moms,
+  const struct gkyl_array *prim_moms,
   const struct gkyl_array *bmag, const struct gkyl_array *jacob_tot, double mass,
   struct gkyl_array *fmax)
 {
+  const struct gkyl_velocity_map *gvm = up->vel_map;
+
   int nblocks = phase_r->nblocks, nthreads = phase_r->nthreads;
   gkyl_proj_gkmaxwellian_on_basis_prim_mom_cu_ker<<<nblocks, nthreads>>>
-    (up->grid, *phase_r, *conf_r, up->conf_basis_at_ords->on_dev, up->basis_at_ords->on_dev,
-     up->ordinates->on_dev, up->weights->on_dev, up->p2c_qidx,
-     moms->on_dev, prim_moms->on_dev, bmag->on_dev, jacob_tot->on_dev, mass, fmax->on_dev);
+    (up->grid, *phase_r, *conf_r, gvm->local_ext_vel, up->conf_basis_at_ords->on_dev,
+     up->basis_at_ords->on_dev, up->ordinates->on_dev, up->weights->on_dev, up->p2c_qidx,
+     prim_moms->on_dev, bmag->on_dev, jacob_tot->on_dev,
+     gvm->vmap->on_dev, gvm->vmap_basis, mass, fmax->on_dev);
 }

@@ -40,6 +40,7 @@ struct twostream_sr_ctx
 
   // Derived physical quantities (using normalized code units).
   double gamma; // Gamma factor.
+  double Vx_drift_SR; // Relativistic drift velocity (x-direction).
 
   // Simulation parameters.
   int Nx; // Cell count (configuration space: x-direction).
@@ -76,6 +77,7 @@ create_ctx(void)
 
   // Derived physical quantities (using normalized code units).
   double gamma = 1.0 / sqrt(1.0 - (Vx_drift * Vx_drift)); // Gamma factor.
+  double Vx_drift_SR = gamma * Vx_drift; // Relativistic drift velocity (x-direction).
 
   // Simulation parameters.
   int Nx = 64; // Cell count (configuration space: x-direction).
@@ -125,10 +127,10 @@ evalDensityInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT 
 
   double alpha = app->alpha;
   double kx = app->kx;
-  double n = 0.5*app->n0;
+  double n0 = app->n0;
 
-  // Set density.
-  fout[0] = (1.0 + alpha * cos(kx * x))*n;
+  // Set total number density.
+  fout[0] = 0.5 * (1.0 + alpha * cos(kx * x)) * n0;
 }
 
 void
@@ -138,7 +140,7 @@ evalTempInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fou
 
   double T = app->T;
 
-  // Set temperature.
+  // Set total temperature.
   fout[0] = T;
 }
 
@@ -147,11 +149,10 @@ evalVDriftLInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT 
 {
   struct twostream_sr_ctx *app = ctx;
 
-  double gamma = app->gamma;
-  double Vx_drift = app->Vx_drift;
+  double Vx_drift_SR = app->Vx_drift_SR;
 
-  // Set left-going drift (four-) velocity.
-  fout[0] = gamma*Vx_drift;
+  // Set left-going relativistic drift velocity.
+  fout[0] = Vx_drift_SR;
 }
 
 void
@@ -159,11 +160,10 @@ evalVDriftRInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT 
 {
   struct twostream_sr_ctx *app = ctx;
 
-  double gamma = app->gamma;
-  double Vx_drift = app->Vx_drift;
+  double Vx_drift_SR = app->Vx_drift_SR;
 
-  // Set right-going drift (four-) velocity.
-  fout[0] = -gamma*Vx_drift;
+  // Set right-going relativistic velocity.
+  fout[0] = -Vx_drift_SR;
 }
 
 void
@@ -175,12 +175,18 @@ evalFieldInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fo
   double alpha = app->alpha;
   double kx = app->kx;
 
-  double E_x = -alpha * sin(kx * x) / kx;
+  double Ex = -alpha * sin(kx * x) / kx; // Total electric field (x-direction).
+  double Ey = 0.0; // Total electric field (y-direction).
+  double Ez = 0.0; // Total electric field (z-direction).
+
+  double Bx = 0.0; // Total magnetic field (x-direction).
+  double By = 0.0; // Total magnetic field (y-direction).
+  double Bz = 0.0; // Total magnetic field (z-direction).
   
   // Set electric field.
-  fout[0] = E_x; fout[1] = 0.0, fout[2] = 0.0;
+  fout[0] = Ex; fout[1] = Ey, fout[2] = Ez;
   // Set magnetic field.
-  fout[3] = 0.0; fout[4] = 0.0; fout[5] = 0.0;
+  fout[3] = Bx; fout[4] = By; fout[5] = Bz;
   // Set correction potentials.
   fout[6] = 0.0; fout[7] = 0.0;
 }
@@ -229,13 +235,9 @@ main(int argc, char **argv)
   }
 #endif  
 
-  // Create global range.
   int ccells[] = { NX };
   int cdim = sizeof(ccells) / sizeof(ccells[0]);
-  struct gkyl_range cglobal_r;
-  gkyl_create_global_range(cdim, ccells, &cglobal_r);
 
-  // Create decomposition.
   int cuts[cdim];
 #ifdef GKYL_HAVE_MPI  
   for (int d = 0; d < cdim; d++) {
@@ -252,8 +254,6 @@ main(int argc, char **argv)
   }
 #endif  
     
-  struct gkyl_rect_decomp *decomp = gkyl_rect_decomp_new_from_cuts(cdim, cuts, &cglobal_r);
-
   // Construct communicator for use in app.
   struct gkyl_comm *comm;
 #ifdef GKYL_HAVE_MPI
@@ -261,7 +261,6 @@ main(int argc, char **argv)
 #ifdef GKYL_HAVE_NCCL
     comm = gkyl_nccl_comm_new( &(struct gkyl_nccl_comm_inp) {
         .mpi_comm = MPI_COMM_WORLD,
-        .decomp = decomp
       }
     );
 #else
@@ -272,20 +271,17 @@ main(int argc, char **argv)
   else if (app_args.use_mpi) {
     comm = gkyl_mpi_comm_new( &(struct gkyl_mpi_comm_inp) {
         .mpi_comm = MPI_COMM_WORLD,
-        .decomp = decomp
       }
     );
   }
   else {
     comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-        .decomp = decomp,
         .use_gpu = app_args.use_gpu
       }
     );
   }
 #else
   comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-      .decomp = decomp,
       .use_gpu = app_args.use_gpu
     }
   );
@@ -378,13 +374,11 @@ main(int argc, char **argv)
 
     .field = field,
 
-    .use_gpu = app_args.use_gpu,
-
-    .has_low_inp = true,
-    .low_inp = {
-      .local_range = decomp->ranges[my_rank],
-      .comm = comm
-    }
+    .parallelism = {
+      .use_gpu = app_args.use_gpu,
+      .cuts = { app_args.cuts[0] },
+      .comm = comm,
+    },
   };
   
   // Create app object.
@@ -475,7 +469,6 @@ main(int argc, char **argv)
   gkyl_vlasov_app_cout(app, stdout, "IO time took %g secs \n", stat.io_tm);
 
   // Free resources after simulation completion.
-  gkyl_rect_decomp_release(decomp);
   gkyl_comm_release(comm);
   gkyl_vlasov_app_release(app);
 

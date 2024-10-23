@@ -266,13 +266,9 @@ main(int argc, char **argv)
   }
 #endif
 
-  // Create global range.
   int cells[] = { NX, NY };
   int dim = sizeof(cells) / sizeof(cells[0]);
-  struct gkyl_range global_r;
-  gkyl_create_global_range(dim, cells, &global_r);
 
-  // Create decomposition.
   int cuts[dim];
 #ifdef GKYL_HAVE_MPI
   for (int d = 0; d < dim; d++) {
@@ -289,28 +285,23 @@ main(int argc, char **argv)
   }
 #endif
 
-  struct gkyl_rect_decomp *decomp = gkyl_rect_decomp_new_from_cuts(dim, cuts, &global_r);
-
   // Construct communicator for use in app.
   struct gkyl_comm *comm;
 #ifdef GKYL_HAVE_MPI
   if (app_args.use_mpi) {
     comm = gkyl_mpi_comm_new( &(struct gkyl_mpi_comm_inp) {
         .mpi_comm = MPI_COMM_WORLD,
-        .decomp = decomp
       }
     );
   }
   else {
     comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-        .decomp = decomp,
         .use_gpu = app_args.use_gpu
       }
     );
   }
 #else
   comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-      .decomp = decomp,
       .use_gpu = app_args.use_gpu
     }
   );
@@ -350,11 +341,11 @@ main(int argc, char **argv)
     .num_species = 1,
     .species = { fluid },
 
-    .has_low_inp = true,
-    .low_inp = {
-      .local_range = decomp->ranges[my_rank],
-      .comm = comm
-    }
+    .parallelism = {
+      .use_gpu = app_args.use_gpu,
+      .cuts = { app_args.cuts[0], app_args.cuts[1] },
+      .comm = comm,
+    },
   };
 
   // Create app object.
@@ -362,14 +353,34 @@ main(int argc, char **argv)
 
   // Initial and final simulation times.
   double t_curr = 0.0, t_end = ctx.t_end;
-
+  int frame = 0;  
   // Create trigger for IO.
   int num_frames = ctx.num_frames;
   struct gkyl_tm_trigger io_trig = { .dt = t_end / num_frames };
 
-  // Initialize simulation.
-  gkyl_moment_app_apply_ic(app, t_curr);
-  write_data(&io_trig, app, t_curr, false);
+  struct gkyl_app_restart_status status;  
+  // initialize simulation
+  if (app_args.is_restart) {
+
+    status = gkyl_moment_app_from_file_species(
+      app, 0, "data/regression/euler_riem_2d_hllc-euler_0.gkyl");
+    
+    if (status.io_status != GKYL_ARRAY_RIO_SUCCESS) {
+      gkyl_moment_app_cout(app, stderr,
+        "*** Failed to read restart file! (%s)\n",
+        gkyl_array_rio_status_msg(status.io_status)
+      );
+      goto freeresources;
+    }
+    frame = status.frame;
+    t_curr = status.stime;
+  }
+  else {
+    // Initialize simulation.
+    gkyl_moment_app_apply_ic(app, t_curr);
+    write_data(&io_trig, app, t_curr, false);
+    gkyl_moment_app_calc_integrated_mom(app, t_curr);
+  }  
 
   // Compute estimate of maximum stable time-step.
   double dt = gkyl_moment_app_max_dt(app);
@@ -383,6 +394,8 @@ main(int argc, char **argv)
     gkyl_moment_app_cout(app, stdout, "Taking time-step %ld at t = %g ...", step, t_curr);
     struct gkyl_update_status status = gkyl_moment_update(app, dt);
     gkyl_moment_app_cout(app, stdout, " dt = %g\n", status.dt_actual);
+
+    gkyl_moment_app_calc_integrated_mom(app, t_curr);
     
     if (!status.success) {
       gkyl_moment_app_cout(app, stdout, "** Update method failed! Aborting simulation ....\n");
@@ -429,9 +442,10 @@ main(int argc, char **argv)
   gkyl_moment_app_cout(app, stdout, "Source updates took %g secs\n", stat.sources_tm);
   gkyl_moment_app_cout(app, stdout, "Total updates took %g secs\n", stat.total_tm);
 
+  freeresources:  
+  
   // Free resources after simulation completion.
   gkyl_wv_eqn_release(euler);
-  gkyl_rect_decomp_release(decomp);
   gkyl_comm_release(comm);
   gkyl_moment_app_release(app);  
   

@@ -159,16 +159,25 @@ evalElcInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fout
   double Jz = -(B0 / lambda) * sech_sq; // Total current density (z-direction).
 
   double rhoe = n * mass_elc; // Electron mass density.
-  double momze = (mass_elc / charge_elc) * Jz * Te_frac; // Electron momentum density (z-direction).
+  double mome_x = 0.0; // Electron momentum density (x-direction).
+  double mome_y = 0.0; // Electron momentum density (y-direction).
+  double mome_z = (mass_elc / charge_elc) * Jz * Te_frac; // Electron momentum density (z-direction).
   double pre = n * T_tot * Te_frac; // Electron pressure (scalar).
+
+  double pre_xx = pre; // Electron pressure tensor (xx-component).
+  double pre_xy = 0.0; // Electron pressure tensor (xy-component).
+  double pre_xz = 0.0; // Electron pressure tensor (xz-component).
+  double pre_yy = pre; // Electron pressure tensor (yy-component).
+  double pre_yz = 0.0; // Electron pressure tensor (yz-component).
+  double pre_zz = pre + (mome_z * mome_z) / rhoe; // Electron pressure tensor (zz-component).
 
   // Set electron mass density.
   fout[0] = rhoe;
   // Set electron momentum density.
-  fout[1] = 0.0; fout[2] = 0.0; fout[3] = momze;
+  fout[1] = mome_x; fout[2] = mome_y; fout[3] = mome_z;
   // Set electron pressure tensor.
-  fout[4] = pre; fout[5] = 0.0; fout[6] = 0.0;
-  fout[7] = pre; fout[8] = 0.0; fout[9] = pre + momze * momze / rhoe;
+  fout[4] = pre_xx; fout[5] = pre_xy; fout[6] = pre_xz;
+  fout[7] = pre_yy; fout[8] = pre_yz; fout[9] = pre_zz;
 }
 
 void
@@ -194,16 +203,25 @@ evalIonInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fout
   double Jz = -(B0 / lambda) * sech_sq; // Total current density (z-direction).
 
   double rhoi = n * mass_ion; // Ion mass density.
-  double momzi = (mass_ion / charge_ion) * Jz * Ti_frac; // Ion momentum density (z-direction).
+  double momi_x = 0.0; // Ion momentum density (x-direction).
+  double momi_y = 0.0; // Ion momentum density (y-direction).
+  double momi_z = (mass_ion / charge_ion) * Jz * Ti_frac; // Ion momentum density (z-direction).
   double pri = n * T_tot * Ti_frac; // Ion pressure (scalar).
+
+  double pri_xx = pri; // Ion pressure tensor (xx-component).
+  double pri_xy = 0.0; // Ion pressure tensor (xy-component).
+  double pri_xz = 0.0; // Ion pressure tensor (xz-component).
+  double pri_yy = pri; // Ion pressure tensor (yy-component).
+  double pri_yz = 0.0; // Ion pressure tensor (yz-component).
+  double pri_zz = pri + (momi_z * momi_z) / rhoi; // Ion pressure tensor (zz-component).
 
   // Set ion mass density.
   fout[0] = rhoi;
   // Set ion momentum density.
-  fout[1] = 0.0; fout[2] = 0.0; fout[3] = momzi;
+  fout[1] = momi_x; fout[2] = momi_y; fout[3] = momi_z;
   // Set ion pressure tensor.
-  fout[4] = pri; fout[5] = 0.0; fout[6] = 0.0;
-  fout[7] = pri; fout[8] = 0.0; fout[9] = pri + momzi * momzi / rhoi;
+  fout[4] = pri_xx; fout[5] = pri_xy; fout[6] = pri_xz;
+  fout[7] = pri_yy; fout[8] = pri_yz; fout[9] = pri_zz;
 }
 
 void
@@ -223,12 +241,17 @@ evalFieldInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fo
   double Ly = app->Ly;
 
   double Bxb = B0 * tanh(y / lambda); // Total magnetic field strength.
+
+  double Ex = 0.0; // Total electric field (x-direction).
+  double Ey = 0.0; // Total electric field (y-direction).
+  double Ez = 0.0; // Total electric field (z-direction).
+
   double Bx = Bxb - psi0 * (pi / Ly) * cos(2.0 * pi * x / Lx) * sin(pi * y / Ly); // Total magnetic field (x-direction).
   double By = psi0 * (2.0 * pi / Lx) * sin(2.0 * pi * x / Lx) * cos(pi * y / Ly); // Total magnetic field (y-direction).
   double Bz = 0.0; // Total magnetic field (z-direction).
 
   // Set electric field.
-  fout[0] = 0.0, fout[1] = 0.0; fout[2] = 0.0;
+  fout[0] = Ex, fout[1] = Ey; fout[2] = Ez;
   // Set magnetic field.
   fout[3] = Bx, fout[4] = By; fout[5] = Bz;
   // Set correction potentials.
@@ -270,14 +293,13 @@ main(int argc, char **argv)
   int NY = APP_ARGS_CHOOSE(app_args.xcells[1], ctx.Ny);  
 
   // Electron/ion equations.
-  struct gkyl_wv_eqn *elc_ten_moment = gkyl_wv_ten_moment_new(ctx.k0, false);
-  struct gkyl_wv_eqn *ion_ten_moment = gkyl_wv_ten_moment_new(ctx.k0, false);
+  struct gkyl_wv_eqn *elc_ten_moment = gkyl_wv_ten_moment_new(ctx.k0, true, app_args.use_gpu);
+  struct gkyl_wv_eqn *ion_ten_moment = gkyl_wv_ten_moment_new(ctx.k0, true, app_args.use_gpu);
   
   struct gkyl_moment_species elc = {
     .name = "elc",
     .charge = ctx.charge_elc, .mass = ctx.mass_elc,
     .equation = elc_ten_moment,
-    .has_grad_closure = true, // Include gradient closure.
     .evolve = true,
     .init = evalElcInit,
     .ctx = &ctx,
@@ -289,7 +311,6 @@ main(int argc, char **argv)
     .name = "ion",
     .charge = ctx.charge_ion, .mass = ctx.mass_ion,
     .equation = ion_ten_moment,
-    .has_grad_closure = true, // Include gradient closure.
     .evolve = true,
     .init = evalIonInit,
     .ctx = &ctx,
@@ -319,10 +340,7 @@ main(int argc, char **argv)
   // Create global range.
   int cells[] = { NX, NY };
   int dim = sizeof(cells) / sizeof(cells[0]);
-  struct gkyl_range global_r;
-  gkyl_create_global_range(dim, cells, &global_r);
 
-  // Create decomposition.
   int cuts[dim];
 #ifdef GKYL_HAVE_MPI
   for (int d = 0; d < dim; d++) {
@@ -339,28 +357,23 @@ main(int argc, char **argv)
   }
 #endif
 
-  struct gkyl_rect_decomp *decomp = gkyl_rect_decomp_new_from_cuts(dim, cuts, &global_r);
-
   // Construct communicator for use in app.
   struct gkyl_comm *comm;
 #ifdef GKYL_HAVE_MPI
   if (app_args.use_mpi) {
     comm = gkyl_mpi_comm_new( &(struct gkyl_mpi_comm_inp) {
         .mpi_comm = MPI_COMM_WORLD,
-        .decomp = decomp
       }
     );
   }
   else {
     comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-        .decomp = decomp,
         .use_gpu = app_args.use_gpu
       }
     );
   }
 #else
   comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-      .decomp = decomp,
       .use_gpu = app_args.use_gpu
     }
   );
@@ -401,11 +414,11 @@ main(int argc, char **argv)
 
     .field = field,
 
-    .has_low_inp = true,
-    .low_inp = {
-      .local_range = decomp->ranges[my_rank],
-      .comm = comm
-    }
+    .parallelism = {
+      .use_gpu = app_args.use_gpu,
+      .cuts = { app_args.cuts[0], app_args.cuts[1] },
+      .comm = comm,
+    },
   };
 
   // Create app object.
@@ -483,7 +496,6 @@ main(int argc, char **argv)
   // Free resources after simulation completion.
   gkyl_wv_eqn_release(elc_ten_moment);
   gkyl_wv_eqn_release(ion_ten_moment);
-  gkyl_rect_decomp_release(decomp);
   gkyl_comm_release(comm);
   gkyl_moment_app_release(app);  
   

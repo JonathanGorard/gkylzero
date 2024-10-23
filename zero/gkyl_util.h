@@ -34,6 +34,11 @@
 # define GKYL_MAX_CDIM 3
 #endif
 
+// Maximum velocity-space dimensions supported
+#ifndef GKYL_MAX_VDIM
+# define GKYL_MAX_VDIM 3
+#endif
+
 // Maximum dimensions supported
 #ifndef GKYL_MAX_DIM
 # define GKYL_MAX_DIM 7
@@ -41,7 +46,22 @@
 
 // Maximum number of supported species
 #ifndef GKYL_MAX_SPECIES
-# define GKYL_MAX_SPECIES 8
+# define GKYL_MAX_SPECIES 16
+#endif
+
+// Maximum number of supported species
+#ifndef GKYL_MAX_REACT
+# define GKYL_MAX_REACT 3*GKYL_MAX_SPECIES
+#endif
+
+// Maximum number of supported sources
+#ifndef GKYL_MAX_SOURCES
+# define GKYL_MAX_SOURCES 4
+#endif
+
+// Maximum number of supported charge states
+#ifndef GKYL_MAX_CHARGE_STATE
+# define GKYL_MAX_CHARGE_STATE 18
 #endif
 
 // Maximum number of supported projection objects
@@ -161,14 +181,44 @@ struct gkyl_kern_op_count {
   size_t num_prod; // number of * and / operations
 };
 
+// String, integer pairs
+struct gkyl_str_int_pair {
+  const char *str;
+  int val;
+};
+
+/**
+ * Search @a pairs list for @a str and return the corresponding int
+ * value. Return @a def if not found. The pair table must be NULL
+ * terminated.
+ *
+ * @param pairs Pair list to search from. Final entry must be { 0, 0 }
+ * @param str String to search for
+ * @param def Default value to return
+ * @return value corresponding to @a str, or @a def.
+ */
+int gkyl_search_str_int_pair_by_str(const struct gkyl_str_int_pair pairs[], const char *str, int def);
+
+/**
+ * Search @a pairs list for @a val and return the corresponding string
+ * value. Return @a def if not found. The pair table must be NULL
+ * terminated.
+ *
+ * @param pairs Pair list to search from. Final entry must be { 0, 0 }
+ * @param val Value to search for
+ * @param def Default value to return
+ * @return value corresponding to @a val, or @a def.
+ */
+const char* gkyl_search_str_int_pair_by_int(const struct gkyl_str_int_pair pairs[], int val, const char *def);
+
 /**
  * Time-trigger. Typical initialization is:
  * 
  * struct gkyl_tm_trigger tmt = { .dt = tend/nframe };
  */
 struct gkyl_tm_trigger {
-  int curr; // current counter
-  double dt, tcurr; // Time-interval, current time
+  int curr; // Current counter.
+  double dt, tcurr; // Time-interval, current time.
 };
 
 /**

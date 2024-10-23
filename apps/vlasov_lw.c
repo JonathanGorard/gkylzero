@@ -1,7 +1,10 @@
 #ifdef GKYL_HAVE_LUA
 
 #include <gkyl_alloc.h>
+#include <gkyl_eqn_type.h>
 #include <gkyl_lua_utils.h>
+#include <gkyl_lw_priv.h>
+#include <gkyl_null_comm.h>
 #include <gkyl_vlasov.h>
 #include <gkyl_vlasov_lw.h>
 #include <gkyl_vlasov_priv.h>
@@ -12,19 +15,10 @@
 
 #include <string.h>
 
-// Get basis type from string
-static enum gkyl_basis_type
-get_basis_type(const char *bnm)
-{
-  if (strcmp(bnm, "serendipity") == 0)
-    return GKYL_BASIS_MODAL_SERENDIPITY;
-  if (strcmp(bnm, "tensor") == 0)
-    return GKYL_BASIS_MODAL_TENSOR;
-  if (strcmp(bnm, "hybrid") == 0)
-    return GKYL_BASIS_MODAL_HYBRID;
-
-  return GKYL_BASIS_MODAL_SERENDIPITY;
-}
+#ifdef GKYL_HAVE_MPI
+#include <mpi.h>
+#include <gkyl_mpi_comm.h>
+#endif
 
 // Magic IDs for use in distinguishing various species and field types
 enum vlasov_magic_ids {
@@ -32,47 +26,40 @@ enum vlasov_magic_ids {
   VLASOV_FIELD_DEFAULT, // Maxwell equations
 };
 
-// Used in call back passed to the initial conditions
-struct lua_func_ctx {
-  int func_ref; // reference to Lua function in registery
-  int ndim, nret; // dimensions of function, number of return values
-  lua_State *L; // Lua state
+// Vlasov projection type -> enum map.
+static const struct gkyl_str_int_pair projection_type[] = {
+  { "func", GKYL_PROJ_FUNC },
+  { "maxwellianPrimitive", GKYL_PROJ_MAXWELLIAN_PRIM },
+  { "maxwellianLab", GKYL_PROJ_MAXWELLIAN_LAB },
+  { "biMaxwellian", GKYL_PROJ_BIMAXWELLIAN },
+  { "LTE", GKYL_PROJ_VLASOV_LTE },
+  { 0, 0 }
 };
 
-static void
-eval_ic(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fout, void *ctx)
-{
-  struct lua_func_ctx *fr = ctx;
-  lua_State *L = fr->L;
+// Vlasov model type -> enum map.
+static const struct gkyl_str_int_pair model_type[] = {
+  { "default", GKYL_MODEL_DEFAULT },
+  { "SR", GKYL_MODEL_SR },
+  { "generalGeometry", GKYL_MODEL_GEN_GEO },
+  { "canonicalPB", GKYL_MODEL_CANONICAL_PB },
+  { 0, 0 }
+};
 
-  int ndim = fr->ndim;
-  int nret = fr->nret;
-  lua_rawgeti(L, LUA_REGISTRYINDEX, fr->func_ref);
-  lua_pushnumber(L, t);
-  lua_createtable(L, GKYL_MAX_DIM, 0);
-
-  for (int i=0; i<ndim; ++i) {
-    lua_pushnumber(L, xn[i]);
-    lua_rawseti(L, -2, i+1); 
-  }
-
-  if (lua_pcall(L, 2, nret, 0)) {
-    const char* ret = lua_tostring(L, -1);
-    luaL_error(L, "*** eval_ic ERROR: %s\n", ret);
-  }
-
-  for (int i=nret-1; i>=0; --i) { // need to fetch in reverse order
-    fout[i] = lua_tonumber(L, -1);
-    lua_pop(L, 1);
-  }
-}
+// Vlasov collision type -> enum map.
+static const struct gkyl_str_int_pair collision_type[] = {
+  { "none", GKYL_NO_COLLISIONS },
+  { "BGK", GKYL_BGK_COLLISIONS },
+  { "LBO", GKYL_LBO_COLLISIONS },
+  { "FPO", GKYL_FPO_COLLISIONS },
+  { 0, 0 }
+};
 
 /* *****************/
 /* Species methods */
 /* *****************/
 
 // Metatable name for species input struct
-#define VLASOV_SPECIES_METATABLE_NM "GkeyllZero.Vlasov.Species"
+#define VLASOV_SPECIES_METATABLE_NM "GkeyllZero.App.Vlasov.Species"
 
 // Lua userdata object for constructing species input
 struct vlasov_species_lw {
@@ -81,7 +68,36 @@ struct vlasov_species_lw {
   struct gkyl_vlasov_species vm_species; // input struct to construct species
   int vdim; // velocity dimensions
   bool evolve; // is this species evolved?
-  struct lua_func_ctx init_ref; // Lua registery reference to initilization function
+
+  int num_init; // Number of projection objects.
+  enum gkyl_projection_id proj_id[GKYL_MAX_PROJ]; // Projection type.
+
+  bool has_init_func[GKYL_MAX_PROJ]; // Is there an initialization function?
+  struct lua_func_ctx init_func_ref[GKYL_MAX_PROJ]; // Lua registry reference to initialization function.
+
+  bool has_density_init_func[GKYL_MAX_PROJ]; // Is there a density initialization function?
+  struct lua_func_ctx density_init_func_ref[GKYL_MAX_PROJ]; // Lua registry reference to density initialization function.
+
+  bool has_V_drift_init_func[GKYL_MAX_PROJ]; // Is there a drift velocity initialiation function?
+  struct lua_func_ctx V_drift_init_func_ref[GKYL_MAX_PROJ]; // Lua registry reference to drift velocity initialization function.
+
+  bool has_temp_init_func[GKYL_MAX_PROJ]; // Is there a temperature initialization function?
+  struct lua_func_ctx temp_init_func_ref[GKYL_MAX_PROJ]; // Lua registry reference to temperature initialization function.
+
+  bool correct_all_moms[GKYL_MAX_PROJ]; // Are we correcting all moments in projections, or only density?
+  double iter_eps[GKYL_MAX_PROJ]; // Error tolerance for moment fixes in projections (density is always exact).
+  int max_iter[GKYL_MAX_PROJ]; // Maximum number of iterations for moment fixes in projections.
+  bool use_last_converged[GKYL_MAX_PROJ]; // Use last iteration value in projections regardless of convergence?
+
+  enum gkyl_collision_id collision_id; // Collision type.
+  
+  bool has_self_nu_func; // Is there a self-collision frequency function?
+  struct lua_func_ctx self_nu_func_ref; // Lua registry reference to self-collision frequency function.
+
+  int num_cross_collisions; // Number of species that we cross-collide with.
+  char collide_with[GKYL_MAX_SPECIES][128]; // Names of species that we cross-collide with.
+
+  bool collision_correct_all_moms; // Are we correcting all moments in collisions, or only density?
 };
 
 static int
@@ -90,7 +106,8 @@ vlasov_species_lw_new(lua_State *L)
   int vdim  = 0;
   struct gkyl_vlasov_species vm_species = { };
 
-  vm_species.model_id = GKYL_MODEL_DEFAULT;
+  const char *model_str = glua_tbl_get_string(L, "modelID", "default");
+  vm_species.model_id = gkyl_search_str_int_pair_by_str(model_type, model_str, GKYL_MODEL_DEFAULT);
   
   vm_species.charge = glua_tbl_get_number(L, "charge", 0.0);
   vm_species.mass = glua_tbl_get_number(L, "mass", 1.0);
@@ -124,12 +141,101 @@ vlasov_species_lw_new(lua_State *L)
     }
     vm_species.num_diag_moments = n;
   }
+  
+  enum gkyl_projection_id proj_id[GKYL_MAX_PROJ];
 
-  int init_ref = LUA_NOREF;
-  if (glua_tbl_get_func(L, "init"))
-    init_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-  else
-    return luaL_error(L, "Species must have an \"init\" function for initial conditions!");
+  bool has_init_func[GKYL_MAX_PROJ];
+  int init_func_ref[GKYL_MAX_PROJ];
+
+  bool has_density_init_func[GKYL_MAX_PROJ];
+  int density_init_func_ref[GKYL_MAX_PROJ];
+
+  bool has_V_drift_init_func[GKYL_MAX_PROJ];
+  int V_drift_init_func_ref[GKYL_MAX_PROJ];
+
+  bool has_temp_init_func[GKYL_MAX_PROJ];
+  int temp_init_func_ref[GKYL_MAX_PROJ];
+  
+  bool correct_all_moms[GKYL_MAX_PROJ];
+  double iter_eps[GKYL_MAX_PROJ];
+  int max_iter[GKYL_MAX_PROJ];
+  bool use_last_converged[GKYL_MAX_PROJ];
+
+  int num_init = glua_tbl_get_integer(L, "numInit", 0);
+
+  with_lua_tbl_tbl(L, "projections") {
+    for (int i = 0; i < num_init; i++) {
+      if (glua_tbl_iget_tbl(L, i + 1)) {
+        const char *projection_str = glua_tbl_get_string(L, "projectionID", "func");
+        proj_id[i] = gkyl_search_str_int_pair_by_str(projection_type, projection_str, GKYL_PROJ_FUNC);
+
+        init_func_ref[i] = LUA_NOREF;
+        has_init_func[i] = false;
+        if (glua_tbl_get_func(L, "init")) {
+          init_func_ref[i] = luaL_ref(L, LUA_REGISTRYINDEX);
+          has_init_func[i] = true;
+        }
+
+        density_init_func_ref[i] = LUA_NOREF;
+        has_density_init_func[i] = false;
+        if (glua_tbl_get_func(L, "densityInit")) {
+          density_init_func_ref[i] = luaL_ref(L, LUA_REGISTRYINDEX);
+          has_density_init_func[i] = true;
+        }
+
+        V_drift_init_func_ref[i] = LUA_NOREF;
+        has_V_drift_init_func[i] = false;
+        if (glua_tbl_get_func(L, "driftVelocityInit")) {
+          V_drift_init_func_ref[i] = luaL_ref(L, LUA_REGISTRYINDEX);
+          has_V_drift_init_func[i] = true;
+        }
+
+        temp_init_func_ref[i] = LUA_NOREF;
+        has_temp_init_func[i] = false;
+        if (glua_tbl_get_func(L, "temperatureInit")) {
+          temp_init_func_ref[i] = luaL_ref(L, LUA_REGISTRYINDEX);
+          has_temp_init_func[i] = true;
+        }
+
+        correct_all_moms[i] = glua_tbl_get_bool(L, "correctAllMoments", true);
+        iter_eps[i] = glua_tbl_get_number(L, "iterationEpsilon", pow(10.0, -12.0));
+        max_iter[i] = glua_tbl_get_integer(L, "maxIterations", 100);
+        use_last_converged[i] = glua_tbl_get_bool(L, "useLastConverged", true);
+
+        lua_pop(L, 1);
+      }
+    }
+  }
+
+  enum gkyl_collision_id collision_id = GKYL_NO_COLLISIONS;
+
+  bool has_self_nu_func = false;
+  int self_nu_func_ref = LUA_NOREF;
+
+  int num_cross_collisions = 0;
+  char collide_with[GKYL_MAX_SPECIES][128];
+
+  bool collision_correct_all_moms = false;
+
+  with_lua_tbl_tbl(L, "collisions") {
+    const char *collision_str = glua_tbl_get_string(L, "collisionID", "none");
+    collision_id = gkyl_search_str_int_pair_by_str(collision_type, collision_str, GKYL_NO_COLLISIONS);
+
+    if (glua_tbl_get_func(L, "selfNu")) {
+      self_nu_func_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+      has_self_nu_func = true;
+    }
+
+    num_cross_collisions = glua_tbl_get_integer(L, "numCrossCollisions", 0);
+    with_lua_tbl_tbl(L, "collideWith") {
+      for (int i = 0; i < num_cross_collisions; i++) {
+        const char* collide_with_char = glua_tbl_iget_string(L, i + 1, "");
+        strcpy(collide_with[i], collide_with_char);
+      }
+    }
+
+    collision_correct_all_moms = glua_tbl_get_bool(L, "correctAllMoments", true);
+  }
   
   struct vlasov_species_lw *vms_lw = lua_newuserdata(L, sizeof(*vms_lw));
   vms_lw->magic = VLASOV_SPECIES_DEFAULT;
@@ -137,12 +243,64 @@ vlasov_species_lw_new(lua_State *L)
   vms_lw->evolve = evolve;
   vms_lw->vm_species = vm_species;
 
-  vms_lw->init_ref = (struct lua_func_ctx) {
-    .func_ref = init_ref,
-    .ndim = 0, // this will be set later
+  vms_lw->num_init = num_init;
+  for (int i = 0; i < num_init; i++) {
+    vms_lw->proj_id[i] = proj_id[i];
+
+    vms_lw->has_init_func[i] = has_init_func[i];
+    vms_lw->init_func_ref[i] = (struct lua_func_ctx) {
+      .func_ref = init_func_ref[i],
+      .ndim = 0, // This will be set later.
+      .nret = 1,
+      .L = L,
+    };
+
+    vms_lw->has_density_init_func[i] = has_density_init_func[i];
+    vms_lw->density_init_func_ref[i] = (struct lua_func_ctx) {
+      .func_ref = density_init_func_ref[i],
+      .ndim = 0, // This will be set later.
+      .nret = 1,
+      .L = L,
+    };
+
+    vms_lw->has_V_drift_init_func[i] = has_V_drift_init_func[i];
+    vms_lw->V_drift_init_func_ref[i] = (struct lua_func_ctx) {
+      .func_ref = V_drift_init_func_ref[i],
+      .ndim = 0, // This will be set later.
+      .nret = 1,
+      .L = L,
+    };
+
+    vms_lw->has_temp_init_func[i] = has_temp_init_func[i];
+    vms_lw->temp_init_func_ref[i] = (struct lua_func_ctx) {
+      .func_ref = temp_init_func_ref[i],
+      .ndim = 0, // This will be set later.
+      .nret = 1,
+      .L = L,
+    };
+
+    vms_lw->correct_all_moms[i] = correct_all_moms[i];
+    vms_lw->iter_eps[i] = iter_eps[i];
+    vms_lw->max_iter[i] = max_iter[i];
+    vms_lw->use_last_converged[i] = use_last_converged[i];
+  }
+
+  vms_lw->collision_id = collision_id;
+
+  vms_lw->has_self_nu_func = has_self_nu_func;
+  vms_lw->self_nu_func_ref = (struct lua_func_ctx) {
+    .func_ref = self_nu_func_ref,
+    .ndim = 0,
     .nret = 1,
     .L = L,
   };
+
+  vms_lw->num_cross_collisions = num_cross_collisions;
+  for (int i = 0; i < num_cross_collisions; i++) {
+    strcpy(vms_lw->collide_with[i], collide_with[i]);
+  }
+
+  vms_lw->collision_correct_all_moms = collision_correct_all_moms;
   
   // set metatable
   luaL_getmetatable(L, VLASOV_SPECIES_METATABLE_NM);
@@ -162,7 +320,7 @@ static struct luaL_Reg vm_species_ctor[] = {
 /* *****************/
 
 // Metatable name for field input struct
-#define VLASOV_FIELD_METATABLE_NM "GkeyllZero.Vlasov.Field"
+#define VLASOV_FIELD_METATABLE_NM "GkeyllZero.App.Vlasov.Field"
 
 // Lua userdata object for constructing field input
 struct vlasov_field_lw {
@@ -185,6 +343,8 @@ vlasov_field_lw_new(lua_State *L)
   vm_field.mu0 = glua_tbl_get_number(L, "mu0", 1.0);
   vm_field.elcErrorSpeedFactor = glua_tbl_get_number(L, "elcErrorSpeedFactor", 0.0);
   vm_field.mgnErrorSpeedFactor = glua_tbl_get_number(L, "mgnErrorSpeedFactor", 0.0);
+
+  vm_field.is_static = glua_tbl_get_bool(L, "isStatic", false);
 
   bool evolve = glua_tbl_get_integer(L, "evolve", true);
 
@@ -225,12 +385,42 @@ static struct luaL_Reg vm_field_ctor[] = {
 /* *************/
 
 // Metatable name for top-level Vlasov App
-#define VLASOV_APP_METATABLE_NM "GkeyllZero.Vlasov.App"
+#define VLASOV_APP_METATABLE_NM "GkeyllZero.App.Vlasov"
 
 // Lua userdata object for holding Vlasov app and run parameters
 struct vlasov_app_lw {
   gkyl_vlasov_app *app; // Vlasov app object
-  struct lua_func_ctx species_func_ctx[GKYL_MAX_SPECIES]; // function context for each species
+
+  int num_init[GKYL_MAX_SPECIES]; // Number of projection objects.
+  enum gkyl_projection_id proj_id[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Projection type.
+
+  bool has_init_func[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Is there an initialization function?
+  struct lua_func_ctx init_func_ctx[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Context for initialization function.
+
+  bool has_density_init_func[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Is there a density initialization function?
+  struct lua_func_ctx density_init_func_ctx[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Context for density initialization function.
+
+  bool has_V_drift_init_func[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Is there a drift velocity initialization function?
+  struct lua_func_ctx V_drift_init_func_ctx[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Context for drift velocity initialziation function.
+  
+  bool has_temp_init_func[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Is there a temperature initialization function?
+  struct lua_func_ctx temp_init_func_ctx[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Context for temperature initialization function.
+
+  bool correct_all_moms[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Are we correcting all moments in projections, or only density?
+  double iter_eps[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Error tolerance for moment fixes in projections (density is always exact).
+  int max_iter[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Maximum number of iterations for moment fixes in projections.
+  bool use_last_converged[GKYL_MAX_SPECIES][GKYL_MAX_PROJ]; // Use last iteration value in projections regardless of convergence?
+
+  enum gkyl_collision_id collision_id[GKYL_MAX_SPECIES]; // Collision type.
+
+  bool has_self_nu_func[GKYL_MAX_SPECIES]; // Is there a self-collision frequency function?
+  struct lua_func_ctx self_nu_func_ctx[GKYL_MAX_SPECIES]; // Context for self-collision frequency function.
+
+  int num_cross_collisions[GKYL_MAX_SPECIES]; // Number of species that we cross-collide with.
+  char collide_with[GKYL_MAX_SPECIES][GKYL_MAX_SPECIES][128]; // Names of species that we cross-collide with.
+
+  bool collision_correct_all_moms[GKYL_MAX_SPECIES]; // Are we correct all moments in collisions, or only density?
+
   struct lua_func_ctx field_func_ctx; // function context for field
   
   double tstart, tend; // start and end times of simulation
@@ -253,7 +443,27 @@ get_species_inp(lua_State *L, int cdim, struct vlasov_species_lw *species[GKYL_M
       struct vlasov_species_lw *vms = lua_touserdata(L, TVAL);
       if (vms->magic == VLASOV_SPECIES_DEFAULT) {
         
-        vms->init_ref.ndim = cdim + vms->vdim;
+        for (int i =0; i < vms->num_init; i++) {
+          if (vms->has_init_func[i]) {
+            vms->init_func_ref[i].ndim = cdim + vms->vdim;
+          }
+
+          if (vms->has_density_init_func[i]) {
+            vms->density_init_func_ref[i].ndim = cdim + vms->vdim;
+          }
+          
+          if (vms->has_V_drift_init_func[i]) {
+            vms->V_drift_init_func_ref[i].ndim = cdim + vms->vdim;
+          }
+
+          if (vms->has_temp_init_func[i]) {
+            vms->temp_init_func_ref[i].ndim = cdim + vms->vdim;
+          }
+        }
+
+        if (vms->has_self_nu_func) {
+          vms->self_nu_func_ref.ndim = cdim + vms->vdim;
+        }
         
         if (lua_type(L,TKEY) == LUA_TSTRING) {
           const char *key = lua_tolstring(L, TKEY, 0);
@@ -290,12 +500,22 @@ vm_app_new(lua_State *L)
   struct gkyl_vm vm = { }; // input table for app
 
   strcpy(vm.name, sim_name);
+  
   int cdim = 0;
   with_lua_tbl_tbl(L, "cells") {
     vm.cdim = cdim = glua_objlen(L);
     for (int d=0; d<cdim; ++d)
       vm.cells[d] = glua_tbl_iget_integer(L, d+1, 0);
   }
+
+  int cuts[GKYL_MAX_DIM];
+  for (int d=0; d<cdim; ++d) cuts[d] = 1;
+  
+  with_lua_tbl_tbl(L, "decompCuts") {
+    int ncuts = glua_objlen(L);
+    for (int d=0; d<ncuts; ++d)
+      cuts[d] = glua_tbl_iget_integer(L, d+1, 0);
+  }  
 
   with_lua_tbl_tbl(L, "lower") {
     for (int d=0; d<cdim; ++d)
@@ -307,6 +527,7 @@ vm_app_new(lua_State *L)
       vm.upper[d] = glua_tbl_iget_number(L, d+1, 0);
   }
 
+  vm.cfl_frac = glua_tbl_get_number(L, "cflFrac", 0.95);
   vm.poly_order = glua_tbl_get_integer(L, "polyOrder", 1);
 
   vm.basis_type = get_basis_type(
@@ -329,15 +550,89 @@ vm_app_new(lua_State *L)
   for (int s=0; s<vm.num_species; ++s) {
     vm.species[s] = species[s]->vm_species;
     vm.vdim = species[s]->vdim;
-    
-    app_lw->species_func_ctx[s] = species[s]->init_ref;
-    vm.species[s].num_init = 1;
-    vm.species[s].projection[0].func = eval_ic;
-    vm.species[s].projection[0].ctx_func = &app_lw->species_func_ctx[s];
+
+    app_lw->num_init[s] = species[s]->num_init;
+    for (int i = 0; i < app_lw->num_init[s]; i++) {
+      app_lw->proj_id[s][i] = species[s]->proj_id[i];
+
+      app_lw->has_init_func[s][i] = species[s]->has_init_func[i];
+      app_lw->init_func_ctx[s][i] = species[s]->init_func_ref[i];
+
+      app_lw->has_density_init_func[s][i] = species[s]->has_density_init_func[i];
+      app_lw->density_init_func_ctx[s][i] = species[s]->density_init_func_ref[i];
+
+      app_lw->has_V_drift_init_func[s][i] = species[s]->has_V_drift_init_func[i];
+      app_lw->V_drift_init_func_ctx[s][i] = species[s]->V_drift_init_func_ref[i];
+      
+      app_lw->has_temp_init_func[s][i] = species[s]->has_temp_init_func[i];
+      app_lw->temp_init_func_ctx[s][i] = species[s]->temp_init_func_ref[i];
+
+      app_lw->correct_all_moms[s][i] = species[s]->correct_all_moms[i];
+      app_lw->iter_eps[s][i] = species[s]->iter_eps[i];
+      app_lw->max_iter[s][i] = species[s]->max_iter[i];
+      app_lw->use_last_converged[s][i] = species[s]->use_last_converged[i];
+    }
+
+    vm.species[s].num_init = app_lw->num_init[s];
+    for (int i = 0; i < app_lw->num_init[s]; i++) {
+      vm.species[s].projection[i].proj_id = app_lw->proj_id[s][i];
+
+      if (species[s]->has_init_func[i]) {
+        vm.species[s].projection[i].func = gkyl_lw_eval_cb;
+        vm.species[s].projection[i].ctx_func = &app_lw->init_func_ctx[s][i];
+      }
+
+      if (species[s]->has_density_init_func[i]) {
+        vm.species[s].projection[i].density = gkyl_lw_eval_cb;
+        vm.species[s].projection[i].ctx_density = &app_lw->density_init_func_ctx[s][i];
+      }
+
+      if (species[s]->has_V_drift_init_func[i]) {
+        vm.species[s].projection[i].V_drift = gkyl_lw_eval_cb;
+        vm.species[s].projection[i].ctx_V_drift = &app_lw->V_drift_init_func_ctx[s][i];
+      }
+
+      if (species[s]->has_temp_init_func[i]) {
+        vm.species[s].projection[i].temp = gkyl_lw_eval_cb;
+        vm.species[s].projection[i].ctx_temp = &app_lw->temp_init_func_ctx[s][i];
+      }
+
+      vm.species[s].projection[i].correct_all_moms = app_lw->correct_all_moms[s][i];
+      vm.species[s].projection[i].iter_eps = app_lw->iter_eps[s][i];
+      vm.species[s].projection[i].max_iter = app_lw->max_iter[s][i];
+      vm.species[s].projection[i].use_last_converged = app_lw->use_last_converged[s][i];
+    }
+
+    app_lw->collision_id[s] = species[s]->collision_id;
+
+    app_lw->has_self_nu_func[s] = species[s]->has_self_nu_func;
+    app_lw->self_nu_func_ctx[s] = species[s]->self_nu_func_ref;
+
+    app_lw->num_cross_collisions[s] = species[s]->num_cross_collisions;
+    for (int i = 0; i < app_lw->num_cross_collisions[s]; i++) {
+      strcpy(app_lw->collide_with[s][i], species[s]->collide_with[i]);
+    }
+
+    app_lw->collision_correct_all_moms[s] = species[s]->collision_correct_all_moms;
+
+    vm.species[s].collisions.collision_id = app_lw->collision_id[s];
+
+    if (species[s]->has_self_nu_func) {
+      vm.species[s].collisions.self_nu = gkyl_lw_eval_cb;
+      vm.species[s].collisions.ctx = &app_lw->self_nu_func_ctx[s];
+    }
+
+    vm.species[s].collisions.num_cross_collisions = app_lw->num_cross_collisions[s];
+    for (int i = 0; i < app_lw->num_cross_collisions[s]; i++) {
+      strcpy(vm.species[s].collisions.collide_with[i], app_lw->collide_with[s][i]);
+    }
+
+    vm.species[s].collisions.correct_all_moms = app_lw->collision_correct_all_moms[s];
   }
 
-  // set field input
-  vm.skip_field = true;
+  // Set field input.
+  vm.skip_field = glua_tbl_get_bool(L, "skipField", false);
+
   with_lua_tbl_key(L, "field") {
     if (lua_type(L, -1) == LUA_TUSERDATA) {
       struct vlasov_field_lw *vmf = lua_touserdata(L, -1);
@@ -349,14 +644,57 @@ vm_app_new(lua_State *L)
         vm.skip_field = !vmf->evolve;
 
         app_lw->field_func_ctx = vmf->init_ref;
-        vm.field.init = eval_ic;
+        vm.field.init = gkyl_lw_eval_cb;
         vm.field.ctx = &app_lw->field_func_ctx;
       }
     }
   }
+
+  // create parallelism
+  struct gkyl_comm *comm = 0;
+  bool has_mpi = false;
+
+  for (int d=0; d<cdim; ++d)
+    vm.parallelism.cuts[d] = cuts[d]; 
+
+#ifdef GKYL_HAVE_MPI
+  with_lua_global(L, "GKYL_MPI_COMM") {
+    if (lua_islightuserdata(L, -1)) {
+      has_mpi = true;
+      MPI_Comm mpi_comm = lua_touserdata(L, -1);
+      comm = gkyl_mpi_comm_new( &(struct gkyl_mpi_comm_inp) {
+          .mpi_comm = mpi_comm,
+        }
+      );
+
+    }
+  }
+#endif
+
+  if (!has_mpi) {
+    // if there is no proper MPI_Comm specifed, the assume we are a
+    // serial sim
+    comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {} );
+  }
+  vm.parallelism.comm = comm;
+
+  int rank;
+  gkyl_comm_get_rank(comm, &rank);
+
+  int comm_sz;
+  gkyl_comm_get_size(comm, &comm_sz);
+
+  int tot_cuts = 1; for (int d=0; d<cdim; ++d) tot_cuts *= cuts[d];
+
+  if (tot_cuts != comm_sz) {
+    printf("tot_cuts = %d (%d)\n", tot_cuts, comm_sz);
+    luaL_error(L, "Number of ranks and cuts do not match!");
+  }
   
   app_lw->app = gkyl_vlasov_app_new(&vm);
-  
+
+  gkyl_comm_release(comm);
+
   // create Lua userdata ...
   struct vlasov_app_lw **l_app_lw = lua_newuserdata(L, sizeof(struct vlasov_app_lw*));
   *l_app_lw = app_lw; // ... point it to the Lua app pointer

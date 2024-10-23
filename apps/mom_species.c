@@ -17,11 +17,14 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
   sp->eqn_type = mom_sp->equation->type;
   sp->num_equations = mom_sp->equation->num_equations;
   sp->equation = gkyl_wv_eqn_acquire(mom_sp->equation);
-  
-  // closure parameter, used by 10 moment
-  sp->k0 = mom_sp->equation->type == GKYL_EQN_TEN_MOMENT ? gkyl_wv_ten_moment_k0(mom_sp->equation) : 0.0;
-  // check if we are running with gradient-based closure
-  sp->has_grad_closure = mom_sp->has_grad_closure == 0 ? 0 : mom_sp->has_grad_closure;
+
+  sp->k0 = 0.0;
+  sp->has_grad_closure = false;
+  if (mom_sp->equation->type == GKYL_EQN_TEN_MOMENT) {
+    sp->k0 = gkyl_wv_ten_moment_k0(mom_sp->equation);
+    sp->has_grad_closure = gkyl_wv_ten_moment_use_grad_closure(mom_sp->equation);
+  }
+
   // check if we are running with Braginskii transport and fetch Braginskii type
   if (app->has_braginskii) {
     sp->type_brag = mom_sp->type_brag;
@@ -64,7 +67,6 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
     sp->medium_gas_gamma = mom_sp->medium_gas_gamma;
     sp->medium_kappa = mom_sp->medium_kappa;
   }
-
   sp->scheme_type = mom->scheme_type;
 
   // choose default limiter
@@ -169,21 +171,27 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
       else
         bc = mom_sp->bcz;
 
+      wv_bc_func_t bc_lower_func;
+
       void (*bc_lower_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
+
       if (dir == 0)
-        bc_lower_func = mom_sp->bcx_lower_func;
+        bc_lower_func = mom_sp->bcx_func[0];
       else if (dir == 1)
-        bc_lower_func = mom_sp->bcy_lower_func;
+        bc_lower_func = mom_sp->bcy_func[0];
       else
-        bc_lower_func = mom_sp->bcz_lower_func;
+        bc_lower_func = mom_sp->bcz_func[0];
+
+      wv_bc_func_t bc_upper_func;
 
       void (*bc_upper_func)(const struct gkyl_wv_eqn* eqn, double t, int nc, const double *skin, double * GKYL_RESTRICT ghost, void *ctx);
+
       if (dir == 0)
-        bc_upper_func = mom_sp->bcx_upper_func;
+        bc_upper_func = mom_sp->bcx_func[1];
       else if (dir == 1)
-        bc_upper_func = mom_sp->bcy_upper_func;
+        bc_upper_func = mom_sp->bcy_func[1];
       else
-        bc_upper_func = mom_sp->bcz_upper_func;
+        bc_upper_func = mom_sp->bcz_func[1];
 
       sp->lower_bct[dir] = bc[0];
       sp->upper_bct[dir] = bc[1];
@@ -211,7 +219,14 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
         case GKYL_SPECIES_COPY:
         case GKYL_SPECIES_WEDGE: // wedge also uses bc_copy
           sp->lower_bc[dir] = gkyl_wv_apply_bc_new(
-            &app->grid, mom_sp->equation, app->geom, dir, GKYL_LOWER_EDGE, nghost, bc_copy, 0);
+            &app->grid, mom_sp->equation, app->geom, dir, GKYL_LOWER_EDGE, nghost,
+            bc_copy, 0);
+          break;
+
+        case GKYL_SPECIES_SKIP:
+          sp->lower_bc[dir] = gkyl_wv_apply_bc_new(
+            &app->grid, mom_sp->equation, app->geom, dir, GKYL_LOWER_EDGE, nghost,
+            bc_skip, 0);
           break;
 
         default:
@@ -242,7 +257,14 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
         case GKYL_SPECIES_COPY:
         case GKYL_SPECIES_WEDGE:
           sp->upper_bc[dir] = gkyl_wv_apply_bc_new(
-            &app->grid, mom_sp->equation, app->geom, dir, GKYL_UPPER_EDGE, nghost, bc_copy, 0);
+            &app->grid, mom_sp->equation, app->geom, dir, GKYL_UPPER_EDGE, nghost,
+            bc_copy, 0);
+          break;
+
+        case GKYL_SPECIES_SKIP:
+          sp->upper_bc[dir] = gkyl_wv_apply_bc_new(
+            &app->grid, mom_sp->equation, app->geom, dir, GKYL_UPPER_EDGE, nghost,
+            bc_skip, 0);
           break;
 
         default:
@@ -254,9 +276,15 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
 
   // allocate array for applied acceleration/forces for each species
   sp->app_accel = mkarr(false, 3, app->local_ext.volume);
+  sp->was_app_accel_computed = false;
+  sp->is_app_accel_static = mom_sp->is_app_accel_static;
   sp->proj_app_accel = 0;
   if (mom_sp->app_accel_func) {
     void *ctx = sp->ctx;
+    if (mom_sp->app_accel_ctx)
+      ctx = mom_sp->app_accel_ctx;
+    sp->proj_app_accel = gkyl_fv_proj_new(&app->grid, 2, GKYL_MOM_APP_NUM_APPLIED_ACCELERATION,
+      mom_sp->app_accel_func, ctx);
 
     if (mom_sp->app_accel_ctx) {
       ctx = mom_sp->app_accel_ctx;
@@ -268,10 +296,13 @@ moment_species_init(const struct gkyl_moment *mom, const struct gkyl_moment_spec
   sp->nT_source = mkarr(false, 2, app->local_ext.volume);
   sp->nT_source_is_set = false;
   sp->proj_nT_source = 0;
-  if (mom_sp->nT_source_func)
-  {
-    sp->proj_nT_source = gkyl_fv_proj_new(
-        &app->grid, 2, 2, mom_sp->nT_source_func, sp->ctx);
+  if (mom_sp->nT_source_func) {
+    void *ctx = sp->ctx;
+    if (mom_sp->nT_source_ctx)
+      ctx = mom_sp->nT_source_ctx;
+    
+    sp->proj_nT_source = gkyl_fv_proj_new(&app->grid, 2, GKYL_MOM_APP_NUM_NT_SOURCE,
+        mom_sp->nT_source_func, ctx);
     sp->nT_source_set_only_once = mom_sp->nT_source_set_only_once;
   }
 
@@ -301,14 +332,9 @@ moment_species_apply_bc(gkyl_moment_app *app, double tcurr,
   
   int num_periodic_dir = app->num_periodic_dir, ndim = app->ndim, is_non_periodic[3] = {1, 1, 1};
 
-  gkyl_comm_array_per_sync(app->comm, &app->local, &app->local_ext, num_periodic_dir,
-    app->periodic_dirs, f);
-  
   for (int d=0; d<num_periodic_dir; ++d)
     is_non_periodic[app->periodic_dirs[d]] = 0;
 
-  if (ndim == 2)
-    moment_apply_periodic_corner_sync_2d(app, f); // TODO: SHOULD BE IN PER_SYNC
   for (int d=0; d<ndim; ++d)
     if (is_non_periodic[d]) {
       // handle non-wedge BCs
@@ -323,7 +349,11 @@ moment_species_apply_bc(gkyl_moment_app *app, double tcurr,
           sp->bc_buffer, d, sp->lower_bc[d], sp->upper_bc[d], f);
     }
 
+  // sync interior ghost cells
   gkyl_comm_array_sync(app->comm, &app->local, &app->local_ext, f);
+  // sync periodic ghost cells
+  gkyl_comm_array_per_sync(app->comm, &app->local, &app->local_ext, num_periodic_dir,
+    app->periodic_dirs, f);
 
   app->stat.species_bc_tm += gkyl_time_diff_now_sec(wst);
 }

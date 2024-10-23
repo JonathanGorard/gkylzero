@@ -83,7 +83,7 @@ create_ctx(void)
   double cfl_frac = 0.95; // CFL coefficient.
 
   double t_end = 2.0; // Final simulation time.
-  int num_frames = 100; // Number of output frames.
+  int num_frames = 1; // Number of output frames.
   double dt_failure_tol = 1.0e-4; // Minimum allowable fraction of initial time-step.
   int num_failures_max = 20; // Maximum allowable number of consecutive small time-steps.
 
@@ -144,13 +144,13 @@ evalFieldInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fo
 
   double phi = (((2.0 * pi) / Lx) * (k_wave_x * x)) + (((2.0 * pi) / Ly) * (k_wave_y * y));
 
-  double Ex = -E0 * cos(phi);
-  double Ey = E0 * cos(phi);
-  double Ez = E0 * cos(phi);
+  double Ex = -E0 * cos(phi); // Total electric field (x-direction).
+  double Ey = E0 * cos(phi); // Total electric field (y-direction).
+  double Ez = E0 * cos(phi); // Total electric field (z-direction).
 
-  double Bx = E0 * cos(phi) * ((2.0 * pi) / Ly) * k_yn;
-  double By = -E0 * cos(phi) * ((2.0 * pi) / Lx) * k_xn;
-  double Bz = E0 * cos(phi) * ((2.0 * pi) / Ly) * (-k_xn - k_yn);
+  double Bx = E0 * cos(phi) * ((2.0 * pi) / Ly) * k_yn; // Total magnetic field (x-direction).
+  double By = -E0 * cos(phi) * ((2.0 * pi) / Lx) * k_xn; // Total magnetic field (y-direction).
+  double Bz = E0 * cos(phi) * ((2.0 * pi) / Ly) * (-k_xn - k_yn); // Total magnetic field (z-direction).
 
   // Set electric field.
   fout[0] = Ex, fout[1] = Ey; fout[2] = Ez;
@@ -208,9 +208,6 @@ main(int argc, char **argv)
     .volume_gas_gamma = ctx.gas_gamma,
     .volume_U0 = ctx.U0,
     .volume_R0 = ctx.R0,
-
-    .bcx = { GKYL_SPECIES_COPY, GKYL_SPECIES_COPY },
-    .bcy = { GKYL_SPECIES_COPY, GKYL_SPECIES_COPY },
   };
 
   // Field.
@@ -233,10 +230,7 @@ main(int argc, char **argv)
   // Create global range.
   int cells[] = { NX, NY };
   int dim = sizeof(cells) / sizeof(cells[0]);
-  struct gkyl_range global_r;
-  gkyl_create_global_range(dim, cells, &global_r);
 
-  // Create decomposition.
   int cuts[dim];
 #ifdef GKYL_HAVE_MPI
   for (int d = 0; d < dim; d++) {
@@ -253,28 +247,23 @@ main(int argc, char **argv)
   }
 #endif
 
-  struct gkyl_rect_decomp *decomp = gkyl_rect_decomp_new_from_cuts(dim, cuts, &global_r);
-
   // Construct communicator for use in app.
   struct gkyl_comm *comm;
 #ifdef GKYL_HAVE_MPI
   if (app_args.use_mpi) {
     comm = gkyl_mpi_comm_new( &(struct gkyl_mpi_comm_inp) {
         .mpi_comm = MPI_COMM_WORLD,
-        .decomp = decomp
       }
     );
   }
   else {
     comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-        .decomp = decomp,
         .use_gpu = app_args.use_gpu
       }
     );
   }
 #else
   comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-      .decomp = decomp,
       .use_gpu = app_args.use_gpu
     }
   );
@@ -315,11 +304,11 @@ main(int argc, char **argv)
 
     .field = field,
 
-    .has_low_inp = true,
-    .low_inp = {
-      .local_range = decomp->ranges[my_rank],
-      .comm = comm
-    }
+    .parallelism = {
+      .use_gpu = app_args.use_gpu,
+      .cuts = { app_args.cuts[0], app_args.cuts[1] },
+      .comm = comm,
+    },
   };
 
   // Create app object.
@@ -396,7 +385,6 @@ main(int argc, char **argv)
 
   // Free resources after simulation completion.
   gkyl_wv_eqn_release(euler);
-  gkyl_rect_decomp_release(decomp);
   gkyl_comm_release(comm);
   gkyl_moment_app_release(app);  
   

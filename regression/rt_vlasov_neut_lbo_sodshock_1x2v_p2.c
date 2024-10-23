@@ -126,13 +126,13 @@ evalDensityInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT 
   double n = 0.0;
 
   if (x < 0.5) {
-    n = nl;
+    n = nl; // Total number density (left).
   }
   else {
-    n = nr;
+    n = nr; // Total number density (right).
   }
 
-  // Set distribution function.
+  // Set total number density.
   fout[0] = n;
 }
 
@@ -148,13 +148,13 @@ evalTempInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fou
   double T = 0.0;
 
   if (x < 0.5) {
-    T = Tl;
+    T = Tl; // Total temperature (left).
   }
   else {
-    T = Tr;
+    T = Tr; // Total temperature (right).
   }
 
-  // Set temperature.
+  // Set total temperature.
   fout[0] = T;
 }
 
@@ -166,7 +166,7 @@ evalVDriftInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT f
   double Vx_drift = app->Vx_drift;
   double Vy_drift = app->Vy_drift;
 
-  // Set drift velocity.
+  // Set total drift velocity.
   fout[0] = Vx_drift; fout[1] = Vy_drift;
 }
 
@@ -226,13 +226,9 @@ main(int argc, char **argv)
   }
 #endif  
 
-  // Create global range.
   int ccells[] = { NX };
   int cdim = sizeof(ccells) / sizeof(ccells[0]);
-  struct gkyl_range cglobal_r;
-  gkyl_create_global_range(cdim, ccells, &cglobal_r);
 
-  // Create decomposition.
   int cuts[cdim];
 #ifdef GKYL_HAVE_MPI  
   for (int d = 0; d < cdim; d++) {
@@ -249,8 +245,6 @@ main(int argc, char **argv)
   }
 #endif  
     
-  struct gkyl_rect_decomp *decomp = gkyl_rect_decomp_new_from_cuts(cdim, cuts, &cglobal_r);
-
   // Construct communicator for use in app.
   struct gkyl_comm *comm;
 #ifdef GKYL_HAVE_MPI
@@ -258,7 +252,6 @@ main(int argc, char **argv)
 #ifdef GKYL_HAVE_NCCL
     comm = gkyl_nccl_comm_new( &(struct gkyl_nccl_comm_inp) {
         .mpi_comm = MPI_COMM_WORLD,
-        .decomp = decomp
       }
     );
 #else
@@ -269,20 +262,17 @@ main(int argc, char **argv)
   else if (app_args.use_mpi) {
     comm = gkyl_mpi_comm_new( &(struct gkyl_mpi_comm_inp) {
         .mpi_comm = MPI_COMM_WORLD,
-        .decomp = decomp
       }
     );
   }
   else {
     comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-        .decomp = decomp,
         .use_gpu = app_args.use_gpu
       }
     );
   }
 #else
   comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-      .decomp = decomp,
       .use_gpu = app_args.use_gpu
     }
   );
@@ -356,13 +346,11 @@ main(int argc, char **argv)
 
    .skip_field = true,
 
-   .use_gpu = app_args.use_gpu,
-
-   .has_low_inp = true,
-   .low_inp = {
-     .local_range = decomp->ranges[my_rank],
-     .comm = comm
-   }
+   .parallelism = {
+      .use_gpu = app_args.use_gpu,
+      .cuts = { app_args.cuts[0] },
+      .comm = comm,
+    },
   };
 
   // Create app object.
@@ -448,7 +436,6 @@ main(int argc, char **argv)
   gkyl_vlasov_app_cout(app, stdout, "IO time took %g secs \n", stat.io_tm);
 
   // Free resources after simulation completion.
-  gkyl_rect_decomp_release(decomp);
   gkyl_comm_release(comm);
   gkyl_vlasov_app_release(app);
 

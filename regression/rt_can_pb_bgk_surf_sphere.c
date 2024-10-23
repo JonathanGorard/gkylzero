@@ -149,7 +149,10 @@ main(int argc, char **argv)
     .det_h_ctx = &ctx,
     
     // Reflective boundary condition
-    .bcx = {GKYL_SPECIES_REFLECT, GKYL_SPECIES_REFLECT},
+    .bcx = {
+      .lower = { .type = GKYL_SPECIES_REFLECT },
+      .upper = { .type = GKYL_SPECIES_REFLECT },
+    },
 
     .num_init = 1, 
     .projection[0] = {
@@ -193,7 +196,9 @@ main(int argc, char **argv)
     .species = { neut },
     .skip_field = true,
 
-    .use_gpu = app_args.use_gpu,
+    .parallelism = {
+      .use_gpu = app_args.use_gpu,
+    },
   };
 
   // create app object

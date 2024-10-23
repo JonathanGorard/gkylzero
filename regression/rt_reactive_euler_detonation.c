@@ -129,14 +129,20 @@ evalReactiveEulerInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RES
     p = pr; // Fluid pressure (right).
   }
 
+  double mom_x = rho * u; // Fluid momentum density (x-direction).
+  double mom_y = 0.0; // Fluid momentum density (y-direction).
+  double mom_z = 0.0; // Fluid momentum density (z-direction).
+  double Etot = (p / (gas_gamma - 1.0)) + (0.5 * rho * u * u); // Fluid total energy density.
+  double reac = rho; // Fluid reaction progress.
+
   // Set fluid mass density.
   fout[0] = rho;
   // Set fluid momentum density.
-  fout[1] = rho * u; fout[2] = 0.0; fout[3] = 0.0;
+  fout[1] = mom_x; fout[2] = mom_y; fout[3] = mom_z;
   // Set fluid total energy density.
-  fout[4] = (p / (gas_gamma - 1.0)) + (0.5 * rho * u * u);
+  fout[4] = Etot;
   // Set fluid reaction progress.
-  fout[5] = rho * 1.0;
+  fout[5] = reac;
 }
 
 void
@@ -203,10 +209,7 @@ main(int argc, char **argv)
   // Create global range.
   int cells[] = { NX };
   int dim = sizeof(cells) / sizeof(cells[0]);
-  struct gkyl_range global_r;
-  gkyl_create_global_range(dim, cells, &global_r);
 
-  // Create decomposition.
   int cuts[dim];
 #ifdef GKYL_HAVE_MPI
   for (int d = 0; d < dim; d++) {
@@ -223,28 +226,23 @@ main(int argc, char **argv)
   }
 #endif
 
-  struct gkyl_rect_decomp *decomp = gkyl_rect_decomp_new_from_cuts(dim, cuts, &global_r);
-
   // Construct communicator for use in app.
   struct gkyl_comm *comm;
 #ifdef GKYL_HAVE_MPI
   if (app_args.use_mpi) {
     comm = gkyl_mpi_comm_new( &(struct gkyl_mpi_comm_inp) {
         .mpi_comm = MPI_COMM_WORLD,
-        .decomp = decomp
       }
     );
   }
   else {
     comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-        .decomp = decomp,
         .use_gpu = app_args.use_gpu
       }
     );
   }
 #else
   comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-      .decomp = decomp,
       .use_gpu = app_args.use_gpu
     }
   );
@@ -281,11 +279,13 @@ main(int argc, char **argv)
     .num_species = 1,
     .species = { fluid },
 
-    .has_low_inp = true,
-    .low_inp = {
-      .local_range = decomp->ranges[my_rank],
-      .comm = comm
-    }
+    .field = field,
+
+    .parallelism = {
+      .use_gpu = app_args.use_gpu,
+      .cuts = { app_args.cuts[0] },
+      .comm = comm,
+    },
   };
 
   // Create app object.
@@ -362,7 +362,6 @@ main(int argc, char **argv)
 
   // Free resources after simulation completion.
   gkyl_wv_eqn_release(reactive_euler);
-  gkyl_rect_decomp_release(decomp);
   gkyl_comm_release(comm);
   gkyl_moment_app_release(app);  
   

@@ -55,6 +55,7 @@ vm_species_projection_init(struct gkyl_vlasov_app *app, struct vm_species *s,
       .hamil = s->hamil,
       .model_id = s->model_id,
       .use_gpu = app->use_gpu,
+      .quad_type = inp.quad_type
     };
     proj->proj_lte = gkyl_vlasov_lte_proj_on_basis_inew( &inp_proj );
 
@@ -84,6 +85,7 @@ vm_species_projection_init(struct gkyl_vlasov_app *app, struct vm_species *s,
         .model_id = s->model_id,
         .use_gpu = app->use_gpu,
         .max_iter = max_iter,
+        .quad_type = inp.quad_type,
         .eps = iter_eps,
         .use_last_converged = use_last_converged, 
       };
@@ -127,8 +129,8 @@ vm_species_projection_calc(gkyl_vlasov_app *app, const struct vm_species *s,
 
     // Correct all the moments of the projected LTE distribution function.
     if (proj->correct_all_moms) {
-      gkyl_vlasov_lte_correct_all_moments(proj->corr_lte, f, proj->vlasov_lte_moms, 
-        &s->local, &app->local);
+      struct gkyl_vlasov_lte_correct_status status_corr = gkyl_vlasov_lte_correct_all_moments(proj->corr_lte, 
+        f, proj->vlasov_lte_moms, &s->local, &app->local);
     } 
   } 
 }

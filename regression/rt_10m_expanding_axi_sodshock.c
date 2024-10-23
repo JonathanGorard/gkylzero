@@ -144,14 +144,25 @@ eval10mInit(double t, const double* GKYL_RESTRICT zc, double* GKYL_RESTRICT fout
     u = ur; // Fluid velocity (right/outer).
     p = pr; // Fluid pressure (right/outer).
   }
+
+  double mom_x = rho * u; // Fluid momentum density (x-direction).
+  double mom_y = 0.0; // Fluid momentum density (y-direction).
+  double mom_z = 0.0; // Fluid momentum density (z-direction).
+
+  double pr_xx = p + (0.5 * rho * u * u); // Fluid pressure tensor (xx-component).
+  double pr_xy = 0.0; // Fluid pressure tensor (xy-component).
+  double pr_xz = 0.0; // Fluid pressure tensor (xz-component).
+  double pr_yy = p; // Fluid pressure tensor (yy-component).
+  double pr_yz = 0.0; // Fluid pressure tensor (yz-component).
+  double pr_zz = p; // Fluid pressure tensor (zz-component).
   
   // Set fluid mass density.
   fout[0] = rho;
   // Set fluid momentum density.
-  fout[1] = 0.0; fout[2] = 0.0; fout[3] = 0.0;
+  fout[1] = mom_x; fout[2] = mom_y; fout[3] = mom_z;
   // Set fluid pressure tensor.
-  fout[4] = p + (0.5 * rho * u * u); fout[5] = 0.0; fout[6] = 0.0;
-  fout[7] = p; fout[8] = 0.0; fout[9] = p;
+  fout[4] = pr_xx; fout[5] = pr_xy; fout[6] = pr_xz;
+  fout[7] = pr_yy; fout[8] = pr_yz; fout[9] = pr_zz;
 }
 
 static inline void
@@ -199,7 +210,7 @@ main(int argc, char **argv)
   int NTHETA = APP_ARGS_CHOOSE(app_args.xcells[1], ctx.Ntheta);
 
   // Fluid equations.
-  struct gkyl_wv_eqn *ten_moment = gkyl_wv_ten_moment_new(ctx.gas_gamma, false);
+  struct gkyl_wv_eqn *ten_moment = gkyl_wv_ten_moment_new(ctx.gas_gamma, false, app_args.use_gpu);
 
   struct gkyl_moment_species fluid = {
     .name = "10m",
@@ -226,10 +237,7 @@ main(int argc, char **argv)
   // Create global range.
   int cells[] = { NR, NTHETA };
   int dim = sizeof(cells) / sizeof(cells[0]);
-  struct gkyl_range global_r;
-  gkyl_create_global_range(dim, cells, &global_r);
 
-  // Create decomposition.
   int cuts[dim];
 #ifdef GKYL_HAVE_MPI
   for (int d = 0; d < dim; d++) {
@@ -246,28 +254,23 @@ main(int argc, char **argv)
   }
 #endif
 
-  struct gkyl_rect_decomp *decomp = gkyl_rect_decomp_new_from_cuts(dim, cuts, &global_r);
-
   // Construct communicator for use in app.
   struct gkyl_comm *comm;
 #ifdef GKYL_HAVE_MPI
   if (app_args.use_mpi) {
     comm = gkyl_mpi_comm_new( &(struct gkyl_mpi_comm_inp) {
         .mpi_comm = MPI_COMM_WORLD,
-        .decomp = decomp
       }
     );
   }
   else {
     comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-        .decomp = decomp,
         .use_gpu = app_args.use_gpu
       }
     );
   }
 #else
   comm = gkyl_null_comm_inew( &(struct gkyl_null_comm_inp) {
-      .decomp = decomp,
       .use_gpu = app_args.use_gpu
     }
   );
@@ -309,11 +312,13 @@ main(int argc, char **argv)
     .num_species = 1,
     .species = { fluid },
 
-    .has_low_inp = true,
-    .low_inp = {
-      .local_range = decomp->ranges[my_rank],
-      .comm = comm
-    }
+    .field = field,
+
+    .parallelism = {
+      .use_gpu = app_args.use_gpu,
+      .cuts = { app_args.cuts[0], app_args.cuts[1] },
+      .comm = comm,
+    },
   };
 
   // Create app object.
@@ -390,7 +395,6 @@ main(int argc, char **argv)
 
   // Free resources after simulation completion.
   gkyl_wv_eqn_release(ten_moment);
-  gkyl_rect_decomp_release(decomp);
   gkyl_comm_release(comm);
   gkyl_moment_app_release(app);  
   
