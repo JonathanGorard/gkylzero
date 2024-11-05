@@ -462,6 +462,20 @@ gk_field_apply_bc(gkyl_gyrokinetic_app *app, struct gk_field *field){
   gkyl_bc_twistshift_advance(field->bc_ts_lo, field->phi_smooth, field->phi_smooth);
   gkyl_bc_twistshift_advance(field->bc_ts_up, field->phi_smooth, field->phi_smooth);
 
+  //=== We now perform the phase 3, i.e. fill the ghost on both ends with 1/2*(TSBC(up)+TSBC(lo))
+  //1. We create an array of size phi which will store the ghost values of phi_smooth but switching upper and lower
+  struct gkyl_array *phi_copy = gkyl_array_new(GKYL_DOUBLE,field->phi_smooth->ncomp,field->phi_smooth->size);
+  //2. Fill the lower ghost cells of phi_copy with the upper ghost cells of phi_smooth
+  gkyl_array_copy_range_to_range(phi_copy, field->phi_smooth, &field->lower_ghost_core, &field->upper_ghost_core);
+  //3. Do the opposite for the upper ghost cells
+  gkyl_array_copy_range_to_range(phi_copy, field->phi_smooth, &field->upper_ghost_core, &field->lower_ghost_core);
+  //4. Add the ghost of phi_copy to phi_smooth
+  gkyl_array_accumulate_range(field->phi_smooth, 1.0, phi_copy, &field->upper_ghost_core);
+  gkyl_array_accumulate_range(field->phi_smooth, 1.0, phi_copy, &field->lower_ghost_core);
+  //5. now divide by two
+  gkyl_array_scale_range(field->phi_smooth, 0.5, &field->upper_ghost_core);
+  gkyl_array_scale_range(field->phi_smooth, 0.5, &field->lower_ghost_core);
+
   /* Note:
   * Here the TS BC has been applied blindly i.e. regardless if the process is at the 
   * border of the domain. Technically, only the processes with the global skin cells 
