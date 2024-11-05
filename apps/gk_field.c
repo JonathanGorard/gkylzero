@@ -475,6 +475,7 @@ gk_field_apply_bc(gkyl_gyrokinetic_app *app, struct gk_field *field){
   //5. now divide by two
   gkyl_array_scale_range(field->phi_smooth, 0.5, &field->upper_ghost_core);
   gkyl_array_scale_range(field->phi_smooth, 0.5, &field->lower_ghost_core);
+  // Now the array will be synchronized and the ssfg will be applied
 
   /* Note:
   * Here the TS BC has been applied blindly i.e. regardless if the process is at the 
