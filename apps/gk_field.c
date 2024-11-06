@@ -458,6 +458,7 @@ gk_field_apply_bc(gkyl_gyrokinetic_app *app, struct gk_field *field){
   gkyl_comm_array_per_sync(app->comm, &app->local, &app->local_ext,
     num_periodic_dir, periodic_dirs, field->phi_smooth); 
 
+  // DR 504 PHASE 2
   // Then call the TS BC updater to update the z ghosts with TS
   gkyl_bc_twistshift_advance(field->bc_ts_lo, field->phi_smooth, field->phi_smooth);
   gkyl_bc_twistshift_advance(field->bc_ts_up, field->phi_smooth, field->phi_smooth);
