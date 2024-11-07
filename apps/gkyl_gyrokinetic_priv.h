@@ -720,7 +720,10 @@ struct gk_field {
   // Core and SOL ranges for IWL sims. 
   // GK IWL sims need a core range extended in z, and a TS BC updater.
   struct gkyl_range local_par_ext_core;
-  struct gkyl_bc_twistshift *bc_ts_lo, *bc_ts_up;
+  // Forward TS updater
+  struct gkyl_bc_twistshift *bc_T_LU_lo, *bc_T_UL_up;
+  // Backward TS updater
+  struct gkyl_bc_twistshift *bc_T_UL_lo, *bc_T_LU_up;
 
   // Additional attributes for setting skin surface to ghost surface (SSFG)
   // Global skin and ghost ranges to apply skin surf from ghost 

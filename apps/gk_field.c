@@ -278,8 +278,9 @@ gk_field_add_TSBC_and_SSFG_updaters(struct gkyl_gyrokinetic_app *app, struct gk_
   upper_bcdir_ext[zdir] = f->local_ext.upper[zdir];
   gkyl_sub_range_init(&f->local_par_ext_core, &f->local_ext, lower_bcdir_ext, upper_bcdir_ext);
 
-  // TS BC updater settings for the lower edge
-  struct gkyl_bc_twistshift_inp tsinp_lo = {
+  //TS BC updater for up to low TS for the lower edge
+  //this sets ghost_L = T_LU(ghost_L)
+  struct gkyl_bc_twistshift_inp T_LU_lo = {
     .bc_dir = zdir,
     .shift_dir = 1, // y shift.
     .shear_dir = 0, // shift varies with x.
@@ -294,8 +295,26 @@ gk_field_add_TSBC_and_SSFG_updaters(struct gkyl_gyrokinetic_app *app, struct gk_
     .use_gpu = app->use_gpu,
   };
 
-  // The TS BC updater settings for the upper edge
-  struct gkyl_bc_twistshift_inp tsinp_up = {
+  //TS BC updater for up to low TS for the lower edge
+  //this sets ghost_L = T_UL(ghost_L)
+  struct gkyl_bc_twistshift_inp T_UL_lo = {
+    .bc_dir = zdir,
+    .shift_dir = 1, // y shift.
+    .shear_dir = 0, // shift varies with x.
+    .edge = GKYL_LOWER_EDGE,
+    .cdim = app->cdim,
+    .bcdir_ext_update_r = f->local_par_ext_core,
+    .num_ghost = ghost,
+    .basis = app->confBasis,
+    .grid = app->grid,
+    .shift_func = bcz->upper.aux_profile,
+    .shift_func_ctx = bcz->upper.aux_ctx,
+    .use_gpu = app->use_gpu,
+  };
+
+  //TS BC updater for low to up TS for the upper edge
+  //this sets ghost_U = T_UL(ghost_U)
+  struct gkyl_bc_twistshift_inp T_UL_up = {
     .bc_dir = zdir,
     .shift_dir = 1, // y shift.
     .shear_dir = 0, // shift varies with x.
@@ -309,9 +328,30 @@ gk_field_add_TSBC_and_SSFG_updaters(struct gkyl_gyrokinetic_app *app, struct gk_
     .shift_func_ctx = bcz->upper.aux_ctx,
     .use_gpu = app->use_gpu,
   };
-  // Add the TS updater to f
-  f->bc_ts_lo = gkyl_bc_twistshift_new(&tsinp_lo);
-  f->bc_ts_up = gkyl_bc_twistshift_new(&tsinp_up);
+
+  //TS BC updater for up to low TS for the lower edge
+  //this sets ghost_U = T_LU(ghost_U)
+  struct gkyl_bc_twistshift_inp T_LU_up = {
+    .bc_dir = zdir,
+    .shift_dir = 1, // y shift.
+    .shear_dir = 0, // shift varies with x.
+    .edge = GKYL_UPPER_EDGE,
+    .cdim = app->cdim,
+    .bcdir_ext_update_r = f->local_par_ext_core,
+    .num_ghost = ghost,
+    .basis = app->confBasis,
+    .grid = app->grid,
+    .shift_func = bcz->lower.aux_profile,
+    .shift_func_ctx = bcz->lower.aux_ctx,
+    .use_gpu = app->use_gpu,
+  };
+
+  // Add the forward TS updater to f
+  f->bc_T_LU_lo = gkyl_bc_twistshift_new(&T_LU_lo);
+  f->bc_T_UL_up = gkyl_bc_twistshift_new(&T_UL_up);
+  // Add the backward TS updater to f
+  f->bc_T_UL_lo = gkyl_bc_twistshift_new(&T_UL_lo);
+  f->bc_T_LU_up = gkyl_bc_twistshift_new(&T_LU_up);
 
   //------------ Skin surface from ghost updater
   // The par_ext ranges have only extension of ghosts in the parallel direciton, 
@@ -457,24 +497,42 @@ gk_field_apply_bc(gkyl_gyrokinetic_app *app, struct gk_field *field){
   int periodic_dirs[] = {2}; // z direction
   gkyl_comm_array_per_sync(app->comm, &app->local, &app->local_ext,
     num_periodic_dir, periodic_dirs, field->phi_smooth); 
+  // phi_smooth ghost cells: | phi_up | ----- | phi_lo |
 
-  // Then call the TS BC updater to update the z ghosts with TS
-  gkyl_bc_twistshift_advance(field->bc_ts_lo, field->phi_smooth, field->phi_smooth);
-  gkyl_bc_twistshift_advance(field->bc_ts_up, field->phi_smooth, field->phi_smooth);
+  //=== We now perform the phase 3a, i.e. 
+  // phi_L = 1/2 (T_LU(phi_up) + T_LU(T_UL(phi_lo)))
+  // phi_U = 1/2 (T_UL(phi_lo) + T_UL(T_LU(phi_up)))
 
-  //=== We now perform the phase 3, i.e. fill the ghost on both ends with 1/2*(TSBC(up)+TSBC(lo))
   //1. We create an array of size phi which will store the ghost values of phi_smooth but switching upper and lower
   struct gkyl_array *phi_copy = mkarr(app->use_gpu, app->basis.num_basis, field->local_ext.volume);
-  //2. Fill the lower ghost cells of phi_copy with the upper ghost cells of phi_smooth
-  gkyl_array_copy_range_to_range(phi_copy, field->phi_smooth, &field->lower_ghost_core, &field->upper_ghost_core);
-  //3. Do the opposite for the upper ghost cells
+
+  //2. Fill the lower ghost cells of phi_copy with the upper ghost cells of phi_smooth and vice versa
   gkyl_array_copy_range_to_range(phi_copy, field->phi_smooth, &field->upper_ghost_core, &field->lower_ghost_core);
+  gkyl_array_copy_range_to_range(phi_copy, field->phi_smooth, &field->lower_ghost_core, &field->upper_ghost_core);
+  // phi_copy ghost cells: | phi_lo | ----- | phi_up |
+
+  //3. Apply forward and backward TS in phi_copy
+  gkyl_bc_twistshift_advance(field->bc_T_UL_lo, phi_copy, phi_copy); // | T_UL(phi_lo)       | ----- | phi_up             |
+  gkyl_bc_twistshift_advance(field->bc_T_LU_lo, phi_copy, phi_copy); // | T_LU(T_UL(phi_lo)) | ----- | phi_up             |
+  gkyl_bc_twistshift_advance(field->bc_T_LU_up, phi_copy, phi_copy); // | T_LU(T_UL(phi_lo)) | ----- | T_LU(phi_up)       |
+  gkyl_bc_twistshift_advance(field->bc_T_UL_up, phi_copy, phi_copy); // | T_LU(T_UL(phi_lo)) | ----- | T_UL(T_LU(phi_up)) |
+  // phi_copy ghost cells: | T_LU(T_UL(phi_lo)) | ----- | T_UL(T_LU(phi_up)) |
+
+  //3. call the forward TS BC updater to update the z ghosts with forward TS in phi_smooth
+  gkyl_bc_twistshift_advance(field->bc_T_LU_lo, field->phi_smooth, field->phi_smooth); // | T_LU(phi_up) | ----- | phi_lo       |
+  gkyl_bc_twistshift_advance(field->bc_T_UL_up, field->phi_smooth, field->phi_smooth); // | T_LU(phi_up) | ----- | T_UL(phi_lo) |
+  // phi_smooth ghost cells: | T_LU(phi_up) | ----- | T_UL(phi_lo) |
+
   //4. Add the ghost of phi_copy to phi_smooth
   gkyl_array_accumulate_range(field->phi_smooth, 1.0, phi_copy, &field->upper_ghost_core);
   gkyl_array_accumulate_range(field->phi_smooth, 1.0, phi_copy, &field->lower_ghost_core);
+  // phi_smooth ghost cells: | T_LU(phi_up) + T_LU(T_UL(phi_lo)) | ----- | T_UL(phi_lo) + T_UL(T_LU(phi_up)) |
+
   //5. now divide by two
   gkyl_array_scale_range(field->phi_smooth, 0.5, &field->upper_ghost_core);
   gkyl_array_scale_range(field->phi_smooth, 0.5, &field->lower_ghost_core);
+  // phi_smooth ghost cells: |1/2*(T_LU(phi_up) + T_LU(T_UL(phi_lo))) | ----- | 1/2*(T_UL(phi_lo) + T_UL(T_LU(phi_up))) |
+
   //6. release the copy
   gkyl_array_release(phi_copy);
 
