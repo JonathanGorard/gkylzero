@@ -465,7 +465,7 @@ main(int argc, char **argv)
     },
     
     .react_neut = {
-      .num_react = 2,
+      .num_react = 0,
       .react_type = {
         { .react_id = GKYL_REACT_IZ,
           .type_self = GKYL_SELF_ELC,
@@ -537,7 +537,7 @@ main(int argc, char **argv)
     
     
     .react_neut = {
-      .num_react = 3,
+      .num_react = 0,
       .react_type = {
         { .react_id = GKYL_REACT_CX,
           .type_self = GKYL_SELF_ION,
@@ -595,7 +595,7 @@ main(int argc, char **argv)
 
     //.bcx = { GKYL_SPECIES_ABSORB, GKYL_SPECIES_ABSORB},
     .react_neut = {
-      .num_react = 3,
+      .num_react = 0,
       .react_type = {
         { .react_id = GKYL_REACT_CX,
           .type_self = GKYL_SELF_PARTNER,
@@ -672,7 +672,6 @@ main(int argc, char **argv)
     .num_species = 2,
     .species = { elc, ion },
     .field = field,
-
 
     .num_neut_species = 1,
     .neut_species = { D0 },

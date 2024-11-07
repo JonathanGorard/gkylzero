@@ -38,7 +38,7 @@ struct gkyl_dg_gk_neut_hamil {
 
 // Calculate hamiltonian
 GKYL_CU_D
-static const gkyl_dg_gk_neut_hamil_kern_list ser_gk_neut_hamil_kernels[] = {
+static const gkyl_dg_gk_neut_hamil_kern_list tensor_gk_neut_hamil_kernels[] = {
   // 1x kernels
   { NULL, NULL, NULL }, // 0
   { NULL, NULL, NULL }, // 1
@@ -47,7 +47,7 @@ static const gkyl_dg_gk_neut_hamil_kern_list ser_gk_neut_hamil_kernels[] = {
   { NULL, NULL, NULL }, // 3
   { NULL, NULL, NULL }, // 4
   // 3x kernels
-  { NULL, gk_neut_hamil_3x3v_ser_p1, NULL }, // 5
+  { NULL, gk_neut_hamil_3x3v_tensor_p1, NULL }, // 5
 };
 
 GKYL_CU_D
@@ -55,8 +55,8 @@ static hamil_t
 choose_kern(enum gkyl_basis_type b_type, int cdim, int vdim, int poly_order)
 {
   switch (b_type) {
-    case GKYL_BASIS_MODAL_SERENDIPITY:  
-      return ser_gk_neut_hamil_kernels[cv_index[cdim].vdim[vdim]].kernels[poly_order];
+    case GKYL_BASIS_MODAL_TENSOR:  
+      return tensor_gk_neut_hamil_kernels[cv_index[cdim].vdim[vdim]].kernels[poly_order];
       break;
     default:
       assert(false);
