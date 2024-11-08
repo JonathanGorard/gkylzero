@@ -88,7 +88,7 @@ static void dg_cx_choose_kernel(struct gkyl_dg_cx_kernels *kernels,
   }
 #endif
 
-  enum gkyl_basis_type basis_type = pbasis_vl.b_type;
+  enum gkyl_basis_type basis_type = cbasis.b_type;
   int pdim = pbasis_vl.ndim;
   int cdim = cbasis.ndim;
   int vdim = pdim - cdim;
