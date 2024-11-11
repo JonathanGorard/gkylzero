@@ -19,6 +19,9 @@
 #include <gkyl_array_reduce.h>
 #include <gkyl_array_rio.h>
 #include <gkyl_bc_basic.h>
+#include <gkyl_bc_emission.h>
+#include <gkyl_bc_emission_spectrum.h>
+#include <gkyl_bc_emission_elastic.h>
 #include <gkyl_bc_sheath_gyrokinetic.h>
 #include <gkyl_bc_twistshift.h>
 #include <gkyl_bgk_collisions.h>
@@ -321,7 +324,54 @@ struct gk_bgk_collisions {
 
 struct gk_boundary_fluxes {
   struct gk_species_moment gammai[2*GKYL_MAX_CDIM]; // integrated moments
+  struct gkyl_rect_grid boundary_grid[2*GKYL_MAX_CDIM];
+  struct gkyl_array *flux_arr[2*GKYL_MAX_CDIM];
+  struct gkyl_array *mom_arr[2*GKYL_MAX_CDIM];
+  struct gkyl_range flux_r[2*GKYL_MAX_CDIM];
+  struct gkyl_range conf_r[2*GKYL_MAX_CDIM];
+  struct gkyl_dg_updater_moment *integ_moms[2*GKYL_MAX_CDIM];
   gkyl_ghost_surf_calc *flux_slvr; // boundary flux solver
+};
+
+struct gk_recycle_wall {
+  // recycling wall boundary conditions
+  int num_species;
+  int dir;
+  enum gkyl_edge_loc edge;
+  double *scale_ptr;
+  double t_bound;
+  bool elastic;
+
+  struct gkyl_spectrum_model *spectrum_model[GKYL_MAX_SPECIES];
+  struct gkyl_yield_model *yield_model[GKYL_MAX_SPECIES];
+  struct gkyl_elastic_model *elastic_model;
+  struct gkyl_bc_emission_ctx *params;
+
+  struct gkyl_bc_emission_spectrum *update[GKYL_MAX_SPECIES];
+  struct gkyl_bc_emission_elastic *elastic_update;
+  struct gkyl_array *f_emit;
+  struct gkyl_array *buffer;
+  struct gkyl_array *elastic_yield;
+  struct gkyl_array *yield[GKYL_MAX_SPECIES]; // projected secondary electron yield
+  struct gkyl_array *spectrum[GKYL_MAX_SPECIES]; // projected secondary electron spectrum
+  struct gkyl_array *weight[GKYL_MAX_SPECIES];
+  struct gkyl_array *flux[GKYL_MAX_SPECIES];
+  struct gkyl_array *bflux_arr[GKYL_MAX_SPECIES];
+  struct gkyl_array *k[GKYL_MAX_SPECIES];
+  struct gk_species *impact_species[GKYL_MAX_SPECIES]; // pointers to impacting species
+  struct gkyl_range impact_normal_r[GKYL_MAX_SPECIES];
+  struct gkyl_dg_updater_moment *flux_slvr[GKYL_MAX_SPECIES]; // integrated moments
+
+  struct gkyl_rect_grid *impact_grid[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_ghost_r[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_skin_r[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_buff_r[GKYL_MAX_SPECIES];
+  struct gkyl_range *impact_cbuff_r[GKYL_MAX_SPECIES];
+  
+  struct gkyl_rect_grid *emit_grid;
+  struct gkyl_range *emit_buff_r;
+  struct gkyl_range *emit_ghost_r;
+  struct gkyl_range *emit_skin_r;
 };
 
 struct gk_react {
@@ -623,6 +673,15 @@ struct gk_neut_species {
   int num_periodic_dir; // number of periodic directions
   int periodic_dirs[3]; // list of periodic directions
   bool bc_is_np[3]; // whether BC is nonperiodic.
+
+  // boundary fluxes
+  struct gk_boundary_fluxes bflux;
+
+  // recycling wall boundary conditions
+  struct gk_recycle_wall bc_recycle_lo;
+  struct gk_recycle_wall bc_recycle_up;
+  bool recyc_lo;
+  bool recyc_up;
 
   // boundary conditions on lower/upper edges in each direction  
   struct gkyl_gyrokinetic_bc lower_bc[3], upper_bc[3];
@@ -1364,6 +1423,54 @@ void gk_neut_species_moment_calc(const struct gk_species_moment *sm,
  */
 void gk_neut_species_moment_release(const struct gkyl_gyrokinetic_app *app,
   const struct gk_species_moment *sm);
+
+/** gk_neut_species_boundary_fluxes API */
+
+/**
+ * Initialize species boundary flux object.
+ *
+ * @param app Gyrokinetic app object
+ * @param s Species object 
+ * @param bflux Species boundary flux object
+ */
+void gk_neut_species_bflux_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_species *s,
+  struct gk_boundary_fluxes *bflux);
+
+/**
+ * Compute boundary flux 
+ * Note: stores the boundary flux in the ghost cells of rhs
+ * The ghost cells are overwritten by apply_bc so computations using
+ * boundary fluxes are internal to rhs method (such as integrated flux)
+ *
+ * @param app Gyrokinetic app object
+ * @param species Pointer to species
+ * @param bflux Species boundary flux object
+ * @param fin Input distribution function
+ * @param rhs On output, the boundary fluxes stored in the ghost cells of rhs
+ */
+void gk_neut_species_bflux_rhs(gkyl_gyrokinetic_app *app, const struct gk_neut_species *species,
+  struct gk_boundary_fluxes *bflux, const struct gkyl_array *fin, struct gkyl_array *rhs);
+
+/**
+ * Release species boundary flux object.
+ *
+ * @param app Gyrokinetic app object
+ * @param bflux Species boundary flux object to release
+ */
+void gk_neut_species_bflux_release(const struct gkyl_gyrokinetic_app *app, const struct gk_boundary_fluxes *bflux);
+
+/** gk_neut_species_recycle API **/
+
+void gk_neut_species_recycle_init(struct gkyl_gyrokinetic_app *app, struct gk_recycle_wall *recyc,
+  int dir, enum gkyl_edge_loc edge, void *ctx, bool use_gpu);
+
+void gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_species *s,
+  struct gk_recycle_wall *recyc);
+
+void gk_neut_species_recycle_apply_bc(struct gkyl_gyrokinetic_app *app, const struct gk_recycle_wall *recyc,
+  struct gkyl_array *fout);
+
+void gk_neut_species_recycle_release(const struct gk_recycle_wall *recyc);
 
 /** gk_neut_species_react API */
 

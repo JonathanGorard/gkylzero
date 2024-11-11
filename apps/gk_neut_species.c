@@ -236,12 +236,17 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
   // buffer arrays for fixed function boundary conditions on distribution function
   s->bc_buffer_lo_fixed = mkarr(app->use_gpu, app->neut_basis.num_basis, buff_sz);
   s->bc_buffer_up_fixed = mkarr(app->use_gpu, app->neut_basis.num_basis, buff_sz);
+  
+  // initialize boundary fluxes for diagnostics and bcs
+  if (!s->info.is_static)
+    gk_neut_species_bflux_init(app, s, &s->bflux); 
 
   for (int d=0; d<cdim; ++d) {
     // Copy BCs by default.
     enum gkyl_bc_basic_type bctype = GKYL_BC_COPY;
     if (s->lower_bc[d].type == GKYL_SPECIES_RECYCLE) {
-      ;
+      s->recyc_lo = true;
+      gk_neut_species_recycle_init(app, &s->bc_recycle_lo, d, GKYL_LOWER_EDGE, s->lower_bc[d].aux_ctx, app->use_gpu);
     }
     else { 
       if (s->lower_bc[d].type == GKYL_SPECIES_COPY) 
@@ -268,7 +273,8 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     }
 
     if (s->upper_bc[d].type == GKYL_SPECIES_RECYCLE) {
-      ;
+      s->recyc_up = true;
+      gk_neut_species_recycle_init(app, &s->bc_recycle_up, d, GKYL_UPPER_EDGE, s->upper_bc[d].aux_ctx, app->use_gpu);
     }
     else {
       // Upper BC updater. Copy BCs by default.
@@ -357,7 +363,7 @@ gk_neut_species_apply_bc(gkyl_gyrokinetic_app *app, const struct gk_neut_species
 
       switch (species->lower_bc[d].type) {
         case GKYL_SPECIES_RECYCLE:
-          ;
+          gk_neut_species_recycle_apply_bc(app, &species->bc_recycle_lo, f);
           break;
         case GKYL_SPECIES_COPY:
         case GKYL_SPECIES_REFLECT:
@@ -375,7 +381,7 @@ gk_neut_species_apply_bc(gkyl_gyrokinetic_app *app, const struct gk_neut_species
 
       switch (species->upper_bc[d].type) {
         case GKYL_SPECIES_RECYCLE:
-          ;
+          gk_neut_species_recycle_apply_bc(app, &species->bc_recycle_up, f);
           break;
         case GKYL_SPECIES_COPY:
         case GKYL_SPECIES_REFLECT:
@@ -448,6 +454,8 @@ gk_neut_species_release(const gkyl_gyrokinetic_app* app, const struct gk_neut_sp
     // release equation object and solver
     gkyl_dg_eqn_release(s->eqn_vlasov);
     gkyl_dg_updater_vlasov_release(s->slvr);
+
+    gk_neut_species_bflux_release(app, &s->bflux);
   }
 
   // release moment data
@@ -466,12 +474,12 @@ gk_neut_species_release(const gkyl_gyrokinetic_app* app, const struct gk_neut_sp
   // Copy BCs are allocated by default. Need to free.
   for (int d=0; d<app->cdim; ++d) {
     if (s->lower_bc[d].type == GKYL_SPECIES_RECYCLE) 
-      ;
+      gk_neut_species_recycle_release(&s->bc_recycle_lo);
     else 
       gkyl_bc_basic_release(s->bc_lo[d]);
     
     if (s->upper_bc[d].type == GKYL_SPECIES_RECYCLE) 
-      ;
+      gk_neut_species_recycle_release(&s->bc_recycle_up);
     else 
       gkyl_bc_basic_release(s->bc_up[d]);
   }
