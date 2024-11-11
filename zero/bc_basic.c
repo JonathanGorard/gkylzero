@@ -124,7 +124,6 @@ gkyl_bc_basic_buffer_fixed_func(const struct gkyl_bc_basic *up, struct gkyl_arra
 void
 gkyl_bc_basic_advance(const struct gkyl_bc_basic *up, struct gkyl_array *buff_arr, struct gkyl_array *f_arr)
 {
-	printf("here bc=%d\n",up->bctype);
   // Apply BC in two steps:
   // 1) Copy skin to buffer while applying array_copy_func.
   switch (up->bctype) {
