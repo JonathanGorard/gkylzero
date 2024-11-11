@@ -726,6 +726,8 @@ struct gk_field {
   struct gkyl_bc_twistshift *bc_T_UL_lo, *bc_T_LU_up;
   // will store the ghost values of phi_smooth for the TSBC SSFG
   struct gkyl_array *phi_copy;
+  struct gkyl_bc_basic *bc_reflect_lo, *bc_reflect_up;
+  struct gkyl_array *bc_buffer;
 
   // Additional attributes for setting skin surface to ghost surface (SSFG)
   // Global skin and ghost ranges to apply skin surf from ghost 
