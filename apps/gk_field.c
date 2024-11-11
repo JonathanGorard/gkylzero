@@ -369,7 +369,7 @@ gk_field_add_TSBC_and_SSFG_updaters(struct gkyl_gyrokinetic_app *app, struct gk_
                 app->confBasis,&f->upper_skin_core,&f->upper_ghost_core,app->use_gpu);
 
   //We allocate the array to store the ghost values of phi_smooth but switching upper and lower
-  f->phi_copy = mkarr(app->use_gpu, app->basis.num_basis, f->local_ext.volume);
+  f->phi_copy = mkarr(app->use_gpu, f->phi_smooth->ncomp, f->phi_smooth->size);
 
   // Create a BC_REFLECT updater.
   f->bc_reflect_lo = gkyl_bc_basic_new(zdir, GKYL_LOWER_EDGE, GKYL_BC_REFLECT, app->basis_on_dev.confBasis,

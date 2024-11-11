@@ -68,7 +68,7 @@ species_reflect_bc(size_t nc, double *out, const double *inp, void *ctx)
   int dir = mc->dir, cdim = mc->cdim;
 
   mc->basis->flip_odd_sign(dir, inp, out);
-  mc->basis->flip_odd_sign(dir+cdim, out, out);
+//  mc->basis->flip_odd_sign(dir+cdim, out, out);
 }
 
 enum { M_EX, M_EY, M_EZ, M_BX, M_BY, M_BZ }; // components of EM field

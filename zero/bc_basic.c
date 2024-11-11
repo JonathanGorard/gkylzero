@@ -124,6 +124,7 @@ gkyl_bc_basic_buffer_fixed_func(const struct gkyl_bc_basic *up, struct gkyl_arra
 void
 gkyl_bc_basic_advance(const struct gkyl_bc_basic *up, struct gkyl_array *buff_arr, struct gkyl_array *f_arr)
 {
+	printf("here bc=%d\n",up->bctype);
   // Apply BC in two steps:
   // 1) Copy skin to buffer while applying array_copy_func.
   switch (up->bctype) {
@@ -142,7 +143,8 @@ gkyl_bc_basic_advance(const struct gkyl_bc_basic *up, struct gkyl_array *buff_ar
 
     case GKYL_BC_REFLECT:
     case GKYL_BC_PKPM_SPECIES_REFLECT:
-      gkyl_array_flip_copy_to_buffer_fn(buff_arr->data, f_arr, up->dir+up->cdim,
+//      gkyl_array_flip_copy_to_buffer_fn(buff_arr->data, f_arr, up->dir+up->cdim,
+      gkyl_array_flip_copy_to_buffer_fn(buff_arr->data, f_arr, up->dir,
                                         up->skin_r, up->array_copy_func->on_dev);
       break;
 
