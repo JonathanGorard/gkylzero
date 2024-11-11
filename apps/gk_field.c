@@ -368,6 +368,9 @@ gk_field_add_TSBC_and_SSFG_updaters(struct gkyl_gyrokinetic_app *app, struct gk_
   f->ssfg_up = gkyl_skin_surf_from_ghost_new(zdir,GKYL_UPPER_EDGE,
                 app->confBasis,&f->upper_skin_core,&f->upper_ghost_core,app->use_gpu);
 
+  //We allocate the array to store the ghost values of phi_smooth but switching upper and lower
+  f->phi_copy = mkarr(app->use_gpu, app->basis.num_basis, f->local_ext.volume);
+
   // Finally we need a config space communicator to sync the inner cell data and
   // avoid applying TS BC inside the domain
   f->comm = gkyl_comm_extend_comm(app->comm, &f->local);
@@ -503,20 +506,17 @@ gk_field_apply_bc(gkyl_gyrokinetic_app *app, struct gk_field *field){
   // phi_L = 1/2 (T_LU(phi_up) + T_LU(T_UL(phi_lo)))
   // phi_U = 1/2 (T_UL(phi_lo) + T_UL(T_LU(phi_up)))
 
-  //1. We create an array of size phi which will store the ghost values of phi_smooth but switching upper and lower
-  struct gkyl_array *phi_copy = mkarr(app->use_gpu, app->basis.num_basis, field->local_ext.volume);
-
-  //2. Fill the lower ghost cells of phi_copy with the upper ghost cells of phi_smooth and vice versa
-  gkyl_array_copy_range_to_range(phi_copy, field->phi_smooth, &field->upper_ghost_core, &field->lower_ghost_core);
-  gkyl_array_copy_range_to_range(phi_copy, field->phi_smooth, &field->lower_ghost_core, &field->upper_ghost_core);
+  //1. Fill the lower ghost cells of phi_copy with the upper ghost cells of phi_smooth and vice versa
+  gkyl_array_copy_range_to_range(field->phi_copy, field->phi_smooth, &field->upper_ghost_core, &field->lower_ghost_core);
+  gkyl_array_copy_range_to_range(field->phi_copy, field->phi_smooth, &field->lower_ghost_core, &field->upper_ghost_core);
   // phi_copy ghost cells: | phi_lo | ----- | phi_up |
 
-  //3. Apply forward and backward TS in phi_copy
-  gkyl_bc_twistshift_advance(field->bc_T_UL_lo, phi_copy, phi_copy); // | T_UL(phi_lo)       | ----- | phi_up             |
-  gkyl_bc_twistshift_advance(field->bc_T_LU_lo, phi_copy, phi_copy); // | T_LU(T_UL(phi_lo)) | ----- | phi_up             |
-  gkyl_bc_twistshift_advance(field->bc_T_LU_up, phi_copy, phi_copy); // | T_LU(T_UL(phi_lo)) | ----- | T_LU(phi_up)       |
-  gkyl_bc_twistshift_advance(field->bc_T_UL_up, phi_copy, phi_copy); // | T_LU(T_UL(phi_lo)) | ----- | T_UL(T_LU(phi_up)) |
-  // phi_copy ghost cells: | T_LU(T_UL(phi_lo)) | ----- | T_UL(T_LU(phi_up)) |
+  //2. Apply forward and backward TS in phi_copy phase 3b
+  gkyl_bc_twistshift_advance(field->bc_T_UL_lo, field->phi_copy, field->phi_copy); // | T_UL(phi_lo)       | ----- | phi_up             |
+  gkyl_bc_twistshift_advance(field->bc_T_LU_lo, field->phi_copy, field->phi_copy); // | T_LU(T_UL(phi_lo)) | ----- | phi_up             |
+  gkyl_bc_twistshift_advance(field->bc_T_LU_up, field->phi_copy, field->phi_copy); // | T_LU(T_UL(phi_lo)) | ----- | T_LU(phi_up)       |
+  gkyl_bc_twistshift_advance(field->bc_T_UL_up, field->phi_copy, field->phi_copy); // | T_LU(T_UL(phi_lo)) | ----- | T_UL(T_LU(phi_up)) |
+  // // phi_copy ghost cells: | T_LU(T_UL(phi_lo)) | ----- | T_UL(T_LU(phi_up)) |
 
   //3. call the forward TS BC updater to update the z ghosts with forward TS in phi_smooth
   gkyl_bc_twistshift_advance(field->bc_T_LU_lo, field->phi_smooth, field->phi_smooth); // | T_LU(phi_up) | ----- | phi_lo       |
@@ -524,17 +524,14 @@ gk_field_apply_bc(gkyl_gyrokinetic_app *app, struct gk_field *field){
   // phi_smooth ghost cells: | T_LU(phi_up) | ----- | T_UL(phi_lo) |
 
   //4. Add the ghost of phi_copy to phi_smooth
-  gkyl_array_accumulate_range(field->phi_smooth, 1.0, phi_copy, &field->upper_ghost_core);
-  gkyl_array_accumulate_range(field->phi_smooth, 1.0, phi_copy, &field->lower_ghost_core);
+  gkyl_array_accumulate_range(field->phi_smooth, 1.0, field->phi_copy, &field->upper_ghost_core);
+  gkyl_array_accumulate_range(field->phi_smooth, 1.0, field->phi_copy, &field->lower_ghost_core);
   // phi_smooth ghost cells: | T_LU(phi_up) + T_LU(T_UL(phi_lo)) | ----- | T_UL(phi_lo) + T_UL(T_LU(phi_up)) |
 
   //5. now divide by two
   gkyl_array_scale_range(field->phi_smooth, 0.5, &field->upper_ghost_core);
   gkyl_array_scale_range(field->phi_smooth, 0.5, &field->lower_ghost_core);
   // phi_smooth ghost cells: |1/2*(T_LU(phi_up) + T_LU(T_UL(phi_lo))) | ----- | 1/2*(T_UL(phi_lo) + T_UL(T_LU(phi_up))) |
-
-  //6. release the copy
-  gkyl_array_release(phi_copy);
 
   /* Note:
   * Here the TS BC has been applied blindly i.e. regardless if the process is at the 
@@ -627,6 +624,7 @@ gk_field_release(const gkyl_gyrokinetic_app* app, struct gk_field *f)
     gkyl_skin_surf_from_ghost_release(f->ssfg_up);
     gkyl_skin_surf_from_ghost_release(f->ssfg_lo);
     gkyl_comm_release(f->comm);
+    gkyl_array_release(f->phi_copy);
   }
 
   gkyl_dynvec_release(f->integ_energy);
