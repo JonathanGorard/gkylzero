@@ -511,13 +511,13 @@ gk_field_apply_bc(gkyl_gyrokinetic_app *app, struct gk_field *field){
     num_periodic_dir, periodic_dirs, field->phi_smooth); 
   // phi_smooth ghost cells: | phi_up | ----- | phi_lo |
 
-  //=== We now perform the phase 3a, i.e. 
+  //=== We now perform the phase 3b, i.e. 
   // phi_L = 1/2 (T_LU(phi_up) + T_LU(T_UL(phi_lo)))
   // phi_U = 1/2 (T_UL(phi_lo) + T_UL(T_LU(phi_up)))
 
   //1. Fill the lower ghost cells of phi_copy with the upper ghost cells of phi_smooth and vice versa
-  gkyl_array_copy_range_to_range(field->phi_copy, field->phi_smooth, &field->upper_skin_core, &field->lower_ghost_core);
-  gkyl_array_copy_range_to_range(field->phi_copy, field->phi_smooth, &field->lower_skin_core, &field->upper_ghost_core);
+  gkyl_array_copy_range_to_range(field->phi_copy, field->phi_smooth, &field->lower_skin_core, &field->lower_skin_core);
+  gkyl_array_copy_range_to_range(field->phi_copy, field->phi_smooth, &field->upper_skin_core, &field->upper_skin_core);
   // phi_copy ghost cells: | phi_lo | ----- | phi_up |
 
   //1.5 Apply reflect BCs to phi_copy to get the correct value at the z-boundary.
