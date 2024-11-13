@@ -22,7 +22,7 @@ gkyl_dg_gk_neut_hamil_set_cu_dev_ptrs(struct gkyl_dg_gk_neut_hamil *up,
 };
 
 void gkyl_dg_gk_neut_hamil_calc_cu_kernel(struct gkyl_dg_gk_neut_hamil *up,
-  const struct gkyl_range *conf_range, const struct gkyl_range *phase_range,
+  const struct gkyl_range conf_range, const struct gkyl_range phase_range,
   const struct gkyl_array* gij, struct gkyl_array* hamil)
 {
 
