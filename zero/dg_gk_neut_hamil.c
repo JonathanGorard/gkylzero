@@ -14,8 +14,8 @@ gkyl_dg_gk_neut_hamil_new(const struct gkyl_rect_grid *phase_grid,
 {
 #ifdef GKYL_HAVE_CUDA
   if(use_gpu) {
-    return gkyl_dg_gk_neut_hamil_cu_dev_new(phase_grid,
-      conf_basis, vel_basis);
+    return gkyl_dg_gk_neut_hamil_new_cu(phase_grid,
+      basis);
   } 
 #endif     
   gkyl_dg_gk_neut_hamil *up = gkyl_malloc(sizeof(*up));
@@ -40,8 +40,8 @@ void gkyl_dg_gk_neut_hamil_calc(struct gkyl_dg_gk_neut_hamil *up,
   const struct gkyl_array* gij, struct gkyl_array* hamil)
 {
 #ifdef GKYL_HAVE_CUDA
-  if (gkyl_array_is_cu_dev(gamma)) {
-    return gkyl_gk_neut_hamil_calc_cu(up, conf_range, phase_range, gij, hamil);
+  if (gkyl_array_is_cu_dev(gij)) {
+    return gkyl_dg_gk_neut_hamil_calc_cu(up, conf_range, phase_range, gij, hamil);
   }
 #endif
 

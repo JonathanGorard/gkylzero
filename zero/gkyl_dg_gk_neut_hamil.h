@@ -22,15 +22,15 @@ typedef struct gkyl_dg_gk_neut_hamil gkyl_dg_gk_neut_hamil;
  */
 struct gkyl_dg_gk_neut_hamil* 
 gkyl_dg_gk_neut_hamil_new(const struct gkyl_rect_grid *phase_grid,
-  const struct gkyl_basis *conf_basis, bool use_gpu);
+  const struct gkyl_basis *basis, bool use_gpu);
 
 /**
  * Create new updater to compute relativistic variables on
  * NV-GPU. See new() method for documentation.
  */
 struct gkyl_dg_gk_neut_hamil* 
-gkyl_dg_gk_neut_hamil_cu_dev_new(const struct gkyl_rect_grid *phase_grid,
-  const struct gkyl_basis *conf_basis);
+gkyl_dg_gk_neut_hamil_new_cu(const struct gkyl_rect_grid *phase_grid,
+  const struct gkyl_basis *basis);
 
 /**
  * Compute the Hamiltonian
