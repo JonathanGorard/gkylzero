@@ -21,11 +21,12 @@ gkyl_dg_gk_neut_hamil_set_cu_dev_ptrs(struct gkyl_dg_gk_neut_hamil *up,
   up->calc_hamil = choose_kern(b_type, cdim, vdim, poly_order);
 };
 
-void gkyl_dg_gk_neut_hamil_calc_cu_kernel(struct gkyl_dg_gk_neut_hamil *up,
+__global__ static void
+gkyl_dg_gk_neut_hamil_calc_cu_kernel(struct gkyl_dg_gk_neut_hamil *up,
   const struct gkyl_range conf_range, const struct gkyl_range phase_range,
   const struct gkyl_array* gij, struct gkyl_array* hamil)
 {
-
+  int idx[GKYL_MAX_DIM];
   // Cell center array
   double xc[GKYL_MAX_DIM];  
   for (unsigned long linc1 = threadIdx.x + blockIdx.x*blockDim.x;
@@ -38,8 +39,8 @@ void gkyl_dg_gk_neut_hamil_calc_cu_kernel(struct gkyl_dg_gk_neut_hamil *up,
     gkyl_sub_range_inv_idx(&phase_range, linc1, idx);
     gkyl_rect_grid_cell_center(&up->phase_grid, idx, xc);
 
-    long loc_conf = gkyl_range_idx(conf_range, idx);
-    long loc_phase = gkyl_range_idx(phase_range, idx);
+    long loc_conf = gkyl_range_idx(&conf_range, idx);
+    long loc_phase = gkyl_range_idx(&phase_range, idx);
 
     const double *gij_d = (const double*) gkyl_array_cfetch(gij, loc_conf);
     double *hamil_d = (double*) gkyl_array_fetch(hamil, loc_phase);
@@ -71,8 +72,6 @@ gkyl_dg_gk_neut_hamil_new_cu(const struct gkyl_rect_grid *phase_grid,
   int vdim = 3; //cdim; // same as cdim for gk_neut species 
   int poly_order = basis->poly_order;
   enum gkyl_basis_type b_type = basis->b_type;
-
-  up->calc_hamil = choose_kern(b_type, cdim, vdim, poly_order);
 
   up->flags = 0;
   GKYL_SET_CU_ALLOC(up->flags);
