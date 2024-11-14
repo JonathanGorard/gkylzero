@@ -63,7 +63,7 @@ void gkyl_dg_gk_neut_hamil_calc_cu(struct gkyl_dg_gk_neut_hamil *up,
 
 gkyl_dg_gk_neut_hamil*
 gkyl_dg_gk_neut_hamil_new_cu(const struct gkyl_rect_grid *phase_grid,
-  const struct gkyl_basis *basis, bool use_gpu)
+  const struct gkyl_basis *basis)
 {    
   gkyl_dg_gk_neut_hamil *up = (struct gkyl_dg_gk_neut_hamil*) gkyl_malloc(sizeof(*up));
 
