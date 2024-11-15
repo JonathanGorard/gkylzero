@@ -62,7 +62,7 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
       &app->basis, recyc->impact_cbuff_r[i], recyc->impact_species[i]->info.mass, recyc->impact_species[i]->vel_map,
       app->gk_geom, 0, 1, app->use_gpu);
     
-    recyc->yield[i] = mkarr(app->use_gpu, app->neut_basis.num_basis, recyc->impact_buff_r[i]->volume);
+    recyc->yield[i] = mkarr(app->use_gpu, app->basis.num_basis, recyc->impact_buff_r[i]->volume);
     recyc->spectrum[i] = mkarr(app->use_gpu, app->neut_basis.num_basis, recyc->emit_buff_r->volume);
     recyc->weight[i] = mkarr(app->use_gpu, app->confBasis.num_basis,
       recyc->impact_cbuff_r[i]->volume);
