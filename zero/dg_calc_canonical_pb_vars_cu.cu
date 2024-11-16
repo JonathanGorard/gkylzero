@@ -165,7 +165,7 @@ gkyl_dg_calc_canonical_pb_vars_cu_dev_new(const struct gkyl_rect_grid *phase_gri
   struct gkyl_dg_calc_canonical_pb_vars *up_cu = (struct gkyl_dg_calc_canonical_pb_vars *) gkyl_cu_malloc(sizeof(gkyl_dg_calc_canonical_pb_vars));
   gkyl_cu_memcpy(up_cu, up, sizeof(gkyl_dg_calc_canonical_pb_vars), GKYL_CU_MEMCPY_H2D);
 
-  dg_calc_canoncial_pb_vars_set_cu_dev_ptrs<<<1,1>>>(up_cu, conf_basis->b_type, cdim, poly_order);
+  dg_calc_canoncial_pb_vars_set_cu_dev_ptrs<<<1,1>>>(up_cu, phase_basis->b_type, cdim, poly_order);
 
   // set parent on_dev pointer
   up->on_dev = up_cu;
