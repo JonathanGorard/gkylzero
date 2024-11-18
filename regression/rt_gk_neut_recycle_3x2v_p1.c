@@ -529,12 +529,12 @@ main(int argc, char **argv)
       },
     },
 
-    .bcz = {
-      .lower = { .type = GKYL_SPECIES_RECYCLE,
-    		 .aux_ctx = bc_ctx, },
-      .upper = { .type = GKYL_SPECIES_RECYCLE,
-                 .aux_ctx = bc_ctx, },
-    },
+    /* .bcz = { */
+    /*   .lower = { .type = GKYL_SPECIES_RECYCLE, */
+    /* 		 .aux_ctx = bc_ctx, }, */
+    /*   .upper = { .type = GKYL_SPECIES_RECYCLE, */
+    /*              .aux_ctx = bc_ctx, }, */
+    /* }, */
     
     .num_diag_moments = 3,
     .diag_moments = { "M0", "M1i", "M2"},
@@ -579,6 +579,11 @@ main(int argc, char **argv)
     .neut_species = { neut, },
     .field = field,
 
+    .parallelism = {
+      .use_gpu = app_args.use_gpu,
+      .cuts = { app_args.cuts[0], app_args.cuts[1], app_args.cuts[2] },
+      .comm = comm,
+    },
   };
 
   // Create app object.
