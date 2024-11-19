@@ -106,14 +106,14 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     // Call updater to evaluate hamiltonian
     struct gkyl_dg_gk_neut_hamil* hamil_calc = gkyl_dg_gk_neut_hamil_new(&s->grid, &app->neut_basis, app->use_gpu);
     gkyl_dg_gk_neut_hamil_calc(hamil_calc, &app->local, &s->local, app->gk_geom->gij, s->hamil);
-
-    // write out the hamiltonian here and check for values.
-    // gkyl_grid_sub_array_write(&s->grid, &s->local, 0,  s->hamil, "hamil.gkyl");
     
     if (app->use_gpu) {
       s->hamil_host = mkarr(false, app->neut_basis.num_basis, s->local_ext.volume);
       gkyl_array_copy(s->hamil_host, s->hamil);
     }
+
+    // write out the hamiltonian here and check for values.
+    // gkyl_grid_sub_array_write(&s->grid, &s->local, 0,  s->hamil_host, "hamil.gkyl");
 
     // always 2*cdim
     int alpha_surf_sz = (2*cdim)*surf_basis.num_basis; 
@@ -133,7 +133,6 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     gkyl_dg_calc_canonical_pb_vars_alpha_surf(calc_vars, &app->local, &s->local, &s->local_ext, s->hamil,
       s->alpha_surf, s->sgn_alpha_surf, s->const_sgn_alpha);
     gkyl_dg_calc_canonical_pb_vars_release(calc_vars);
-
   }
 
   // by default, we do not have zero-flux boundary conditions in any direction
@@ -241,6 +240,8 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
   if (!s->info.is_static)
     gk_neut_species_bflux_init(app, s, &s->bflux); 
 
+  s->recyc_lo = false;
+  s->recyc_up = false;
   for (int d=0; d<cdim; ++d) {
     // Copy BCs by default.
     enum gkyl_bc_basic_type bctype = GKYL_BC_COPY;
@@ -318,12 +319,12 @@ double
 gk_neut_species_rhs(gkyl_gyrokinetic_app *app, struct gk_neut_species *species,
   const struct gkyl_array *fin, struct gkyl_array *rhs)
 {
-  double omega_cfl = 1/DBL_MAX;
+  double omega_cfl_ho[1];
+  omega_cfl_ho[0] = 1/DBL_MAX;
 
   if (!species->info.is_static) {
     gkyl_array_clear(species->cflrate, 0.0);
     gkyl_array_clear(rhs, 0.0);
-    
     gkyl_dg_updater_vlasov_advance(species->slvr, &species->local, 
       fin, species->cflrate, rhs);
 
@@ -334,17 +335,15 @@ gk_neut_species_rhs(gkyl_gyrokinetic_app *app, struct gk_neut_species *species,
     struct timespec tm = gkyl_wall_clock();
     gkyl_array_reduce_range(species->omega_cfl, species->cflrate, GKYL_MAX, &species->local);
 
-    double omega_cfl_ho[1];
-    if (app->use_gpu)
+    if (app->use_gpu) {
       gkyl_cu_memcpy(omega_cfl_ho, species->omega_cfl, sizeof(double), GKYL_CU_MEMCPY_D2H);
+    }
     else
       omega_cfl_ho[0] = species->omega_cfl[0];
-    omega_cfl = omega_cfl_ho[0];
 
     app->stat.species_omega_cfl_tm += gkyl_time_diff_now_sec(tm);
   }
-
-  return app->cfl/omega_cfl;
+  return app->cfl/omega_cfl_ho[0];
 }
 
 // Determine which directions are periodic and which directions are not periodic,
@@ -440,15 +439,11 @@ gk_neut_species_release(const gkyl_gyrokinetic_app* app, const struct gk_neut_sp
     gkyl_array_release(s->cflrate);
 
     gkyl_array_release(s->hamil);
-    gkyl_array_release(s->h_ij_inv);
-    gkyl_array_release(s->det_h);
     gkyl_array_release(s->alpha_surf);
     gkyl_array_release(s->sgn_alpha_surf);
     gkyl_array_release(s->const_sgn_alpha);
     if (app->use_gpu){
       gkyl_array_release(s->hamil_host);
-      gkyl_array_release(s->h_ij_inv_host);
-      gkyl_array_release(s->det_h_host);
     }
 
     // release equation object and solver

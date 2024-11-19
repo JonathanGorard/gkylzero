@@ -137,7 +137,7 @@ gkyl_dg_canonical_pb_cu_dev_new(const struct gkyl_basis* cbasis, const struct gk
   struct dg_canonical_pb *canonical_pb_cu = (struct dg_canonical_pb*) gkyl_cu_malloc(sizeof(struct dg_canonical_pb));
   gkyl_cu_memcpy(canonical_pb_cu, canonical_pb, sizeof(struct dg_canonical_pb), GKYL_CU_MEMCPY_H2D);
 
-  dg_canonical_pb_set_cu_dev_ptrs<<<1,1>>>(canonical_pb_cu, cbasis->b_type, cdim, vdim, poly_order);
+  dg_canonical_pb_set_cu_dev_ptrs<<<1,1>>>(canonical_pb_cu, pbasis->b_type, cdim, vdim, poly_order);
 
   // set parent on_dev pointer
   canonical_pb->eqn.on_dev = &canonical_pb_cu->eqn;
