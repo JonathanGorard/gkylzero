@@ -20,10 +20,10 @@ extern "C" {
 // CUDA kernel to set device pointers to kernels.
 __global__ static void
 gkyl_dg_cx_set_cu_ker_ptrs(struct gkyl_dg_cx_kernels *kernels,
-  struct gkyl_basis pbasis_vl, int tblidx)
+  struct gkyl_basis cbasis, int tblidx)
 {
-  enum gkyl_basis_type b_type = pbasis_vl.b_type;
-  int poly_order = pbasis_vl.poly_order;
+  enum gkyl_basis_type b_type = cbasis.b_type;
+  int poly_order = cbasis.poly_order;
 
   switch (b_type) {
     case GKYL_BASIS_MODAL_HYBRID:
@@ -45,7 +45,7 @@ dg_cx_choose_kernel_cu(struct gkyl_dg_cx_kernels *kernels,
   int vdim = pdim - cdim;
 
   assert(cv_index[cdim].vdim[vdim] != -1);
-  gkyl_dg_cx_set_cu_ker_ptrs<<<1,1>>>(kernels, pbasis_vl, cv_index[cdim].vdim[vdim]);
+  gkyl_dg_cx_set_cu_ker_ptrs<<<1,1>>>(kernels, cbasis, cv_index[cdim].vdim[vdim]);
 }
 
 __global__ static void
