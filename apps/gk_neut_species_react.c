@@ -215,8 +215,8 @@ gk_neut_species_react_rhs(gkyl_gyrokinetic_app *app, const struct gk_neut_specie
       gkyl_dg_mul_conf_phase_op_range(&app->confBasis, &app->neut_basis, react->f_react,
           react->m0_elc[i], react->f_react, &app->local, &s->local);
       // multiply by configuration space Jacobian before final accumulation
-      gkyl_dg_mul_conf_phase_op_range(&app->confBasis, &app->neut_basis, react->f_react,
-          app->gk_geom->jacobgeo, react->f_react, &app->local_ext, &s->local_ext);
+      /* gkyl_dg_mul_conf_phase_op_range(&app->confBasis, &app->neut_basis, react->f_react, */
+      /*     app->gk_geom->jacobgeo, react->f_react, &app->local_ext, &s->local_ext); */
       gkyl_array_accumulate(rhs, 1.0, react->f_react);
     }
     else if (react->react_id[i] == GKYL_REACT_CX) {
