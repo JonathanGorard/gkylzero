@@ -683,7 +683,8 @@ struct gkyl_fem_poisson {
 
   // Information that will change the Poisson solver according to the z-plane
   bool is_z_edge; // to check if we are on a z edge to apply the phi=0 target corner BC
-  double xLCFS; // Position of the LCFS
+  int idxLCFS; // Position of the LCFS
+  double target_tip_bias; // Bias applied to the target tip (dirichlet BC value)
 };
 
 void

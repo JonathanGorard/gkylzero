@@ -16,9 +16,15 @@ gk_field_new(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app)
   struct gk_field *f = gkyl_malloc(sizeof(struct gk_field));
 
   f->info = gk->field;
+
   // We add the position of the lcfs in the poisson BC structure
   // to pass it to the deflated FEM solver
-  f->info.poisson_bcs.xLCFS = f->info.xLCFS;
+  f->info.poisson_bcs.idxLCFS = (gk->field.xLCFS-1e-8 - app->grid.lower[0])/app->grid.dx[0]+1;
+
+  // Setting of the bias to apply at the target tip
+  // The best way would to use Lambda <Te>_y/e
+  // with <Te>_y the y-avg electron temperature at the current frame.
+  f->info.poisson_bcs.target_tip_bias = 80.0; // Set it to 80V
 
   f->gkfield_id = f->info.gkfield_id ? f->info.gkfield_id : GKYL_GK_FIELD_ES;
 

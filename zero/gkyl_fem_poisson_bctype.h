@@ -22,7 +22,8 @@ struct gkyl_poisson_bc {
   // Additional attributes to apply a different BC according to the edge planes in the z direction.
   bool is_z_edge;
   bool contains_lower_z_edge, contains_upper_z_edge;
-  double xLCFS;
+  int idxLCFS;
+  double target_tip_bias;
 };
 
 GKYL_CU_DH
