@@ -168,6 +168,44 @@ gkyl_fem_poisson_set_rhs_kernel(struct gkyl_array *epsilon, bool isvareps, const
 }
 
 __global__ void
+gkyl_fem_poisson_apply_bias_kernel(bool is_z_edge, int idxLCFS, double bias,
+  struct gkyl_range range, double *rhs_global, struct gkyl_fem_poisson_kernels *kers)
+{
+  int idx[GKYL_MAX_CDIM];  int idx0[GKYL_MAX_CDIM];  int num_cells[GKYL_MAX_CDIM];
+  long globalidx[32];
+  for (int d=0; d<GKYL_MAX_CDIM; d++) num_cells[d] = range.upper[d]-range.lower[d]+1;
+
+  // If we are located at the edge of the z domain
+  if (is_z_edge) {
+
+    for (unsigned long linc1 = threadIdx.x + blockIdx.x*blockDim.x;
+         linc1 < range.volume;
+         linc1 += gridDim.x*blockDim.x)
+    {
+      // inverse index from linc1 to idx
+      // must use gkyl_sub_range_inv_idx so that linc1=0 maps to idx={1,1,...}
+      // since update_range is a subrange
+      gkyl_sub_range_inv_idx(&range, linc1, idx);
+
+      // convert back to a linear index on the super-range (with ghost cells)
+      // linc will have jumps in it to jump over ghost cells
+      long start = gkyl_range_idx(&range, idx);
+
+      int keri = idx_to_inup_ker(range.ndim, num_cells, idx);
+      for (size_t d=0; d<range.ndim; d++) idx0[d] = idx[d]-1;
+      kers->l2g[keri](num_cells, idx0, globalidx);
+      if (idx[0] == idxLCFS) {
+        atomicExch((unsigned long long int*) &rhs_global[globalidx[1]],__double_as_longlong(bias));
+        atomicExch((unsigned long long int*) &rhs_global[globalidx[3]],__double_as_longlong(bias));
+      }
+      else if (idx[0] == idxLCFS+1) {
+        atomicExch((unsigned long long int*) &rhs_global[globalidx[0]],__double_as_longlong(bias));
+        atomicExch((unsigned long long int*) &rhs_global[globalidx[2]],__double_as_longlong(bias));
+      }
+    }
+  }
+}
+__global__ void
 gkyl_fem_poisson_get_sol_kernel(struct gkyl_array *x_local, const double *x_global, struct gkyl_range range, struct gkyl_fem_poisson_kernels *kers)
 {
   int idx[GKYL_MAX_CDIM];  int idx0[GKYL_MAX_CDIM];  int num_cells[GKYL_MAX_CDIM];
@@ -205,6 +243,7 @@ gkyl_fem_poisson_set_rhs_cu(gkyl_fem_poisson *up, struct gkyl_array *rhsin)
   gkyl_culinsolver_clear_rhs(up->prob_cu, 0);
   double *rhs_cu = gkyl_culinsolver_get_rhs_ptr(up->prob_cu, 0);
   gkyl_fem_poisson_set_rhs_kernel<<<rhsin->nblocks, rhsin->nthreads>>>(up->epsilon->on_dev, up->isvareps, up->dx_cu, rhs_cu, rhsin->on_dev, *up->solve_range, up->bcvals_cu, up->kernels_cu); 
+  gkyl_fem_poisson_apply_bias_kernel<<<rhsin->nblocks, rhsin->nthreads>>>(up->is_z_edge, up->idxLCFS, up->target_tip_bias, *up->solve_range, rhs_cu, up->kernels_cu);
 }	
 
 void
