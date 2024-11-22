@@ -24,7 +24,7 @@ gk_field_new(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app)
   // Setting of the bias to apply at the target tip
   // The best way would to use Lambda <Te>_y/e
   // with <Te>_y the y-avg electron temperature at the current frame.
-  f->info.poisson_bcs.target_tip_bias = 80.0; // Set it to 80V
+  f->info.poisson_bcs.target_tip_bias = 0.0; // Set it to 80V
 
   f->gkfield_id = f->info.gkfield_id ? f->info.gkfield_id : GKYL_GK_FIELD_ES;
 
