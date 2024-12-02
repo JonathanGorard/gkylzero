@@ -390,7 +390,20 @@ gk_species_init(struct gkyl_gk *gk_app_inp, struct gkyl_gyrokinetic_app *app, st
 
   // set species source id
   gks->src = (struct gk_source) { };
-  
+
+  // Initialize a Maxwellian/LTE (local thermodynamic equilibrium) projection routine
+  // Projection routine optionally corrects all the Maxwellian/LTE moments
+  // This routine is utilized by both reactions and BGK collisions
+  gks->lte = (struct gk_lte) { };
+  bool correct_all_moms = gks->info.correct_all_moms;
+  int max_iter = gks->info.max_iter > 0 ? gks->info.max_iter : 50;
+  double iter_eps = gks->info.iter_eps > 0 ? gks->info.iter_eps  : 1e-10;
+  bool use_last_converged = gks->info.use_last_converged;
+  struct correct_all_moms_inp corr_inp = { .correct_all_moms = correct_all_moms, 
+    .max_iter = max_iter, .iter_eps = iter_eps, 
+    .use_last_converged = use_last_converged };
+  gk_species_lte_init(app, gks, &gks->lte, corr_inp);
+
   // Determine collision type and initialize it.
   gks->lbo = (struct gk_lbo_collisions) { };
   gks->bgk = (struct gk_bgk_collisions) { };
@@ -690,6 +703,8 @@ double
 gk_species_rhs(gkyl_gyrokinetic_app *app, struct gk_species *species,
   const struct gkyl_array *fin, struct gkyl_array *rhs)
 {
+  double omega_cfl = 1/DBL_MAX; 
+
   gkyl_array_set(species->phi, 1.0, app->field->phi_smooth);
 
   gkyl_array_clear(species->cflrate, 0.0);
@@ -710,7 +725,7 @@ gk_species_rhs(gkyl_gyrokinetic_app *app, struct gk_species *species,
 
   if (species->lbo.collision_id == GKYL_LBO_COLLISIONS)
     gk_species_lbo_rhs(app, species, &species->lbo, fin, rhs);
-  if (species->bgk.collision_id == GKYL_BGK_COLLISIONS)
+  if (species->bgk.collision_id == GKYL_BGK_COLLISIONS && !app->has_implicit_coll_scheme)
     gk_species_bgk_rhs(app, species, &species->bgk, fin, rhs);
   
   if (species->has_diffusion)
@@ -734,10 +749,44 @@ gk_species_rhs(gkyl_gyrokinetic_app *app, struct gk_species *species,
     gkyl_cu_memcpy(omega_cfl_ho, species->omega_cfl, sizeof(double), GKYL_CU_MEMCPY_D2H);
   else
     omega_cfl_ho[0] = species->omega_cfl[0];
+  omega_cfl = omega_cfl_ho[0];
 
   app->stat.species_omega_cfl_tm += gkyl_time_diff_now_sec(tm);
   
-  return app->cfl/omega_cfl_ho[0];
+  return app->cfl/omega_cfl;
+}
+
+// Compute the implicit RHS for species update, returning maximum stable
+// time-step.
+double
+gk_species_rhs_implicit(gkyl_gyrokinetic_app *app, struct gk_species *species,
+  const struct gkyl_array *fin, struct gkyl_array *rhs, double dt)
+{
+  double omega_cfl = 1/DBL_MAX;
+
+  gkyl_array_clear(species->cflrate, 0.0);
+  gkyl_array_clear(rhs, 0.0);
+
+  // Compute implicit update and update rhs to new time step
+  if (species->bgk.collision_id == GKYL_BGK_COLLISIONS) {
+    gk_species_bgk_rhs(app, species, &species->bgk, fin, rhs);
+  }
+  gkyl_array_accumulate(gkyl_array_scale(rhs, dt), 1.0, fin);
+
+  app->stat.nspecies_omega_cfl +=1;
+  struct timespec tm = gkyl_wall_clock();
+  gkyl_array_reduce_range(species->omega_cfl, species->cflrate, GKYL_MAX, &species->local);
+
+  double omega_cfl_ho[1];
+  if (app->use_gpu)
+    gkyl_cu_memcpy(omega_cfl_ho, species->omega_cfl, sizeof(double), GKYL_CU_MEMCPY_D2H);
+  else
+    omega_cfl_ho[0] = species->omega_cfl[0];
+  omega_cfl = omega_cfl_ho[0];
+
+  app->stat.species_omega_cfl_tm += gkyl_time_diff_now_sec(tm);
+  
+  return app->cfl/omega_cfl;
 }
 
 // Apply boundary conditions to the distribution function.
@@ -824,6 +873,15 @@ gk_species_coll_tm(gkyl_gyrokinetic_app *app)
 }
 
 void
+gk_species_niter_corr(gkyl_gyrokinetic_app *app)
+{
+  for (int i=0; i<app->num_species; ++i) {
+    app->stat.num_corr[i] = app->species[i].lte.num_corr;
+    app->stat.niter_corr[i] = app->species[i].lte.niter;
+  }
+}
+
+void
 gk_species_tm(gkyl_gyrokinetic_app *app)
 {
   app->stat.species_rhs_tm = 0.0;
@@ -880,6 +938,7 @@ gk_species_release(const gkyl_gyrokinetic_app* app, const struct gk_species *s)
 
   gk_species_source_release(app, &s->src);
 
+  gk_species_lte_release(app, &s->lte);
   if (s->lbo.collision_id == GKYL_LBO_COLLISIONS)
     gk_species_lbo_release(app, &s->lbo);
   if (s->bgk.collision_id == GKYL_BGK_COLLISIONS)

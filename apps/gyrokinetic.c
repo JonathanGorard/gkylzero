@@ -430,6 +430,25 @@ gkyl_gyrokinetic_app_new(struct gkyl_gk *gk)
     gk_neut_species_source_init(app, &app->neut_species[i], &app->neut_species[i].src);
   }
 
+  // Use implicit BGK collisions if specified
+  app->has_implicit_coll_scheme = false;
+  for (int i=0; i<ns; ++i){
+    if (gk->species[i].collisions.has_implicit_coll_scheme){
+      app->has_implicit_coll_scheme = true;
+    }
+  }
+
+  // Set the appropriate update function for taking a single time step
+  // If we have implicit BGK collisions for either the gyrokinetic or neutral species, 
+  // we perform a first-order operator split and treat those terms implicitly.
+  // Otherwise, we default to an SSP-RK3 method. 
+  if (app->has_implicit_coll_scheme) {
+    app->update_func = gyrokinetic_update_op_split;
+  }
+  else {
+    app->update_func = gyrokinetic_update_ssp_rk3;
+  }
+
   // initialize stat object
   app->stat = (struct gkyl_gyrokinetic_stat) {
     .use_gpu = app->use_gpu,
@@ -440,10 +459,11 @@ gkyl_gyrokinetic_app_new(struct gkyl_gk *gk)
   return app;
 }
 
-// Compute fields.
-static void
-calc_field(gkyl_gyrokinetic_app* app, double tcurr, const struct gkyl_array *fin[])
+void
+gyrokinetic_calc_field(gkyl_gyrokinetic_app* app, double tcurr, const struct gkyl_array *fin[])
 {
+  // Compute fields.
+
   if (app->update_field) {
     // Compute electrostatic potential from gyrokinetic Poisson's equation.
     gk_field_accumulate_rho_c(app, app->field, fin);
@@ -466,15 +486,16 @@ calc_field(gkyl_gyrokinetic_app* app, double tcurr, const struct gkyl_array *fin
   }
 }
 
-// Compute fields and apply BCs.
-static void
-calc_field_and_apply_bc(gkyl_gyrokinetic_app* app, double tcurr, struct gkyl_array *distf[], struct gkyl_array *distf_neut[])
+void
+gyrokinetic_calc_field_and_apply_bc(gkyl_gyrokinetic_app* app, double tcurr,
+  struct gkyl_array *distf[], struct gkyl_array *distf_neut[])
 {
+  // Compute fields and apply BCs.
 
   // Compute the field.
   // MF 2024/09/27/: Need the cast here for consistency. Fixing
   // this may require removing 'const' from a lot of places.
-  calc_field(app, tcurr, (const struct gkyl_array **) distf);
+  gyrokinetic_calc_field(app, tcurr, (const struct gkyl_array **) distf);
 
   // Apply boundary conditions.
   for (int i=0; i<app->num_species; ++i) {
@@ -559,7 +580,7 @@ gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
       gk_species_bflux_rhs(app, s, &s->bflux, distf[i], distf[i]);
     }
   }
-  calc_field_and_apply_bc(app, 0., distf, distf_neut);
+  gyrokinetic_calc_field_and_apply_bc(app, 0., distf, distf_neut);
 }
 
 void
@@ -585,7 +606,7 @@ gkyl_gyrokinetic_app_apply_ic_neut_species(gkyl_gyrokinetic_app* app, int sidx, 
   app->tcurr = t0;
   struct timespec wtm = gkyl_wall_clock();
   gk_neut_species_apply_ic(app, gk_ns, t0);
-  app->stat.init_species_tm += gkyl_time_diff_now_sec(wtm);
+  app->stat.init_neut_species_tm += gkyl_time_diff_now_sec(wtm);
 }
 
 void
@@ -730,12 +751,10 @@ gkyl_gyrokinetic_app_write_field(gkyl_gyrokinetic_app* app, double tm, int frame
 
     struct timespec wtm = gkyl_wall_clock();
     gkyl_comm_array_write(app->comm, &app->grid, &app->local, mt, app->field->phi_host, fileNm);
-    app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-    app->stat.nio += 1;
+    app->stat.field_io_tm += gkyl_time_diff_now_sec(wtm);
+    app->stat.nfield_io += 1;
 
     gk_array_meta_release(mt);
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
   }
 }
 
@@ -745,8 +764,8 @@ gkyl_gyrokinetic_app_calc_field_energy(gkyl_gyrokinetic_app* app, double tm)
   if (app->update_field) {
     struct timespec wst = gkyl_wall_clock();
     gk_field_calc_energy(app, tm, app->field);
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
+    app->stat.field_diag_tm += gkyl_time_diff_now_sec(wst);
+    app->stat.nfield_diag += 1;
   }
 }
 
@@ -775,12 +794,8 @@ gkyl_gyrokinetic_app_write_field_energy(gkyl_gyrokinetic_app* app)
         // append to existing file
         gkyl_dynvec_awrite(app->field->integ_energy, fileNm);
       }
-      app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-      app->stat.nio += 1;
     }
     gkyl_dynvec_clear(app->field->integ_energy);
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
   }
 }
 
@@ -817,8 +832,6 @@ gkyl_gyrokinetic_app_write_species(gkyl_gyrokinetic_app* app, int sidx, double t
   app->stat.nio += 1;
 
   gk_array_meta_release(mt);  
-  app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-  app->stat.ndiag += 1;
 }
 
 void
@@ -848,12 +861,10 @@ gkyl_gyrokinetic_app_write_neut_species(gkyl_gyrokinetic_app* app, int sidx, dou
 
     struct timespec wtm = gkyl_wall_clock();
     gkyl_comm_array_write(gk_ns->comm, &gk_ns->grid, &gk_ns->local, mt, gk_ns->f_host, fileNm);
-    app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-    app->stat.nio += 1;
+    app->stat.neut_io_tm += gkyl_time_diff_now_sec(wtm);
+    app->stat.nneut_io += 1;
 
     gk_array_meta_release(mt);  
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
   }
 }
 
@@ -873,7 +884,6 @@ gkyl_gyrokinetic_app_write_species_mom(gkyl_gyrokinetic_app* app, int sidx, doub
 
   for (int m=0; m<gks->info.num_diag_moments; ++m) {
     gk_species_moment_calc(&gks->moms[m], gks->local, app->local, gks->f);
-    app->stat.nmom += 1;
 
     const char *fmt = "%s-%s_%s_%d.gkyl";
     int sz = gkyl_calc_strlen(fmt, app->name, gks->info.name,
@@ -882,12 +892,11 @@ gkyl_gyrokinetic_app_write_species_mom(gkyl_gyrokinetic_app* app, int sidx, doub
     snprintf(fileNm, sizeof fileNm, fmt, app->name, gks->info.name,
       gks->info.diag_moments[m], frame);
 
-    // Rescale moment by inverse of Jacobian if not already re-scaled 
-    if (!gks->moms[m].is_bimaxwellian_moms && !gks->moms[m].is_maxwellian_moms) {
-      gkyl_dg_div_op_range(gks->moms[m].mem_geo, app->confBasis, 
-        0, gks->moms[m].marr, 0, gks->moms[m].marr, 0, 
-        app->gk_geom->jacobgeo, &app->local);  
-    }    
+    // Rescale moment by inverse of Jacobian 
+    // For Maxwellian and bi-Maxwellian moments, only have to re-scale M0
+    gkyl_dg_div_op_range(gks->moms[m].mem_geo, app->confBasis, 
+      0, gks->moms[m].marr, 0, gks->moms[m].marr, 0, 
+      app->gk_geom->jacobgeo, &app->local);  
 
     if (app->use_gpu) {
       gkyl_array_copy(gks->moms[m].marr_host, gks->moms[m].marr);
@@ -903,7 +912,6 @@ gkyl_gyrokinetic_app_write_species_mom(gkyl_gyrokinetic_app* app, int sidx, doub
   if (app->enforce_positivity) {
     // We placed the change in f from the positivity shift in fnew.
     gk_species_moment_calc(&gks->ps_moms, gks->local, app->local, gks->fnew);
-    app->stat.nmom += 1;
 
     const char *fmt = "%s-%s_positivity_shift_FourMoments_%d.gkyl";
     int sz = gkyl_calc_strlen(fmt, app->name, gks->info.name, frame);
@@ -948,7 +956,6 @@ gkyl_gyrokinetic_app_write_neut_species_mom(gkyl_gyrokinetic_app* app, int sidx,
 
     for (int m=0; m<gk_ns->info.num_diag_moments; ++m) {
       gk_neut_species_moment_calc(&gk_ns->moms[m], gk_ns->local, app->local, gk_ns->f);
-      app->stat.nmom += 1;
 
       const char *fmt = "%s-%s_%s_%d.gkyl";
       int sz = gkyl_calc_strlen(fmt, app->name, gk_ns->info.name,
@@ -969,12 +976,12 @@ gkyl_gyrokinetic_app_write_neut_species_mom(gkyl_gyrokinetic_app* app, int sidx,
       struct timespec wtm = gkyl_wall_clock();
       gkyl_comm_array_write(app->comm, &app->grid, &app->local, mt,
         gk_ns->moms[m].marr_host, fileNm);
-      app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-      app->stat.nio += 1;
+      app->stat.neut_io_tm += gkyl_time_diff_now_sec(wtm);
+      app->stat.nneut_io += 1;
     }
     gk_array_meta_release(mt);   
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
+    app->stat.neut_diag_tm += gkyl_time_diff_now_sec(wst);
+    app->stat.nneut_diag += 1;
   }
 }
 
@@ -1044,8 +1051,8 @@ gkyl_gyrokinetic_app_calc_neut_species_integrated_mom(gkyl_gyrokinetic_app* app,
       memcpy(avals_global, gk_ns->red_integ_diag_global, sizeof(double[2+vdim]));
     }
     gkyl_dynvec_append(gk_ns->integ_diag, tm, avals_global);
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
+    app->stat.neut_diag_tm += gkyl_time_diff_now_sec(wst);
+    app->stat.nneut_diag += 1;
   }
 }
 
@@ -1130,12 +1137,12 @@ gkyl_gyrokinetic_app_write_neut_species_integrated_mom(gkyl_gyrokinetic_app *app
       else {
         gkyl_dynvec_awrite(gk_ns->integ_diag, fileNm);
       }
-      app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-      app->stat.nio += 1;
+      app->stat.neut_io_tm += gkyl_time_diff_now_sec(wtm);
+      app->stat.nneut_io += 1;
     }
     gkyl_dynvec_clear(gk_ns->integ_diag);
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
+    app->stat.neut_diag_tm += gkyl_time_diff_now_sec(wst);
+    app->stat.nneut_diag += 1;
   }
 }
 
@@ -1208,12 +1215,12 @@ gkyl_gyrokinetic_app_write_neut_species_source(gkyl_gyrokinetic_app* app, int si
 
     struct timespec wtm = gkyl_wall_clock();
     gkyl_comm_array_write(gk_ns->comm, &gk_ns->grid, &gk_ns->local, mt, gk_ns->src.source_host, fileNm);
-    app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-    app->stat.nio += 1;
+    app->stat.neut_io_tm += gkyl_time_diff_now_sec(wtm);
+    app->stat.nneut_io += 1;
 
     gk_array_meta_release(mt);   
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
+    app->stat.neut_diag_tm += gkyl_time_diff_now_sec(wst);
+    app->stat.nneut_diag += 1;
   }
 }
 
@@ -1234,7 +1241,6 @@ gkyl_gyrokinetic_app_write_species_source_mom(gkyl_gyrokinetic_app* app, int sid
 
     for (int m=0; m<gk_s->info.num_diag_moments; ++m) {
       gk_species_moment_calc(&gk_s->src.moms[m], gk_s->local, app->local, gk_s->src.source);
-      app->stat.nmom += 1;
 
       const char *fmt = "%s-%s_source_%s_%d.gkyl";
       int sz = gkyl_calc_strlen(fmt, app->name, gk_s->info.name,
@@ -1285,7 +1291,6 @@ gkyl_gyrokinetic_app_write_neut_species_source_mom(gkyl_gyrokinetic_app* app, in
 
     for (int m=0; m<gk_ns->info.num_diag_moments; ++m) {
       gk_neut_species_moment_calc(&gk_ns->src.moms[m], gk_ns->local, app->local, gk_ns->src.source);
-      app->stat.nmom += 1;
 
       const char *fmt = "%s-%s_source_%s_%d.gkyl";
       int sz = gkyl_calc_strlen(fmt, app->name, gk_ns->info.name,
@@ -1306,13 +1311,13 @@ gkyl_gyrokinetic_app_write_neut_species_source_mom(gkyl_gyrokinetic_app* app, in
       struct timespec wtm = gkyl_wall_clock();
       gkyl_comm_array_write(app->comm, &app->grid, &app->local, mt,
         gk_ns->src.moms[m].marr_host, fileNm);
-      app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-      app->stat.nio += 1;
+      app->stat.neut_io_tm += gkyl_time_diff_now_sec(wtm);
+      app->stat.nneut_io += 1;
     }
 
     gk_array_meta_release(mt);   
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
+    app->stat.neut_diag_tm += gkyl_time_diff_now_sec(wst);
+    app->stat.nneut_diag += 1;
   }
 }
 
@@ -1367,8 +1372,8 @@ gkyl_gyrokinetic_app_calc_neut_species_source_integrated_mom(gkyl_gyrokinetic_ap
       memcpy(avals_global, gk_ns->src.red_integ_diag_global, sizeof(double[2+vdim]));
     }
     gkyl_dynvec_append(gk_ns->src.integ_diag, tm, avals_global);
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
+    app->stat.neut_diag_tm += gkyl_time_diff_now_sec(wst);
+    app->stat.nneut_diag += 1;
   }
 }
 
@@ -1401,8 +1406,6 @@ gkyl_gyrokinetic_app_write_species_source_integrated_mom(gkyl_gyrokinetic_app *a
       app->stat.nio += 1;
     }
     gkyl_dynvec_clear(gks->src.integ_diag);
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
   }
 }
 
@@ -1431,12 +1434,10 @@ gkyl_gyrokinetic_app_write_neut_species_source_integrated_mom(gkyl_gyrokinetic_a
       else {
         gkyl_dynvec_awrite(gk_ns->src.integ_diag, fileNm);
       }
-      app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-      app->stat.nio += 1;
+      app->stat.neut_io_tm += gkyl_time_diff_now_sec(wtm);
+      app->stat.nneut_io += 1;
     }
     gkyl_dynvec_clear(gk_ns->src.integ_diag);
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
   }
 }
 
@@ -1503,17 +1504,52 @@ gkyl_gyrokinetic_app_write_species_lbo_mom(gkyl_gyrokinetic_app* app, int sidx, 
     gkyl_comm_array_write(app->comm, &app->grid, &app->local, mt, gk_s->lbo.nu_prim_moms_host, fileNm_nu_prim);*/
 
     gk_array_meta_release(mt); 
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
   }
 }
 
 void
-gkyl_gyrokinetic_app_write_species_bgk_max_corr_status(gkyl_gyrokinetic_app* app, int sidx)
+gkyl_gyrokinetic_app_write_species_bgk_cross_mom(gkyl_gyrokinetic_app* app, int sidx, double tm, int frame)
+{
+  struct gk_species *gk_s = &app->species[sidx];
+
+  if (gk_s->bgk.collision_id == GKYL_BGK_COLLISIONS && gk_s->bgk.write_diagnostics) {
+    struct timespec wst = gkyl_wall_clock();
+
+    struct gkyl_array_meta *mt = gk_array_meta_new( (struct gyrokinetic_output_meta) {
+        .frame = frame,
+        .stime = tm,
+        .poly_order = app->poly_order,
+        .basis_type = app->confBasis.id
+      }
+    );
+
+    // Construct the file handles for cross moments
+    const char *fmt_cross = "%s-%s_cross_moms_%d.gkyl";
+    int sz_cross = gkyl_calc_strlen(fmt_cross, app->name, gk_s->info.name, frame);
+    char fileNm_cross[sz_cross+1]; // ensures no buffer overflow
+    snprintf(fileNm_cross, sizeof fileNm_cross, fmt_cross, app->name, gk_s->info.name, frame);
+
+    // Compute primitive moments and cross primitive moments
+    gk_species_bgk_moms(app, gk_s, &gk_s->bgk, gk_s->f);
+    if (gk_s->lbo.num_cross_collisions)
+      gk_species_bgk_cross_moms(app, gk_s, &gk_s->bgk, gk_s->f);
+
+    struct timespec wtm = gkyl_wall_clock();
+    // Write out the 0th cross moment (we can write out others but this is just a debugging tool)
+    gkyl_comm_array_write(app->comm, &app->grid, &app->local, mt, gk_s->bgk.cross_moms[0], fileNm_cross);
+    app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
+    app->stat.nio += 1;
+
+    gk_array_meta_release(mt); 
+  }
+}
+
+void
+gkyl_gyrokinetic_app_write_species_max_corr_status(gkyl_gyrokinetic_app* app, int sidx)
 {
   struct gk_species *gks = &app->species[sidx];
 
-  if (gks->bgk.collision_id == GKYL_BGK_COLLISIONS && gks->bgk.write_diagnostics) {
+  if (gks->lte.correct_all_moms) {
     struct timespec wst = gkyl_wall_clock();
 
     // write out diagnostic moments
@@ -1527,21 +1563,50 @@ gkyl_gyrokinetic_app_write_species_bgk_max_corr_status(gkyl_gyrokinetic_app* app
 
     if (rank == 0) {
       struct timespec wtm = gkyl_wall_clock();
-      if (gks->bgk.is_first_corr_status_write_call) {
+      if (gks->lte.is_first_corr_status_write_call) {
         // write to a new file (this ensure previous output is removed)
-        gkyl_dynvec_write(gks->bgk.corr_stat, fileNm);
-        gks->bgk.is_first_corr_status_write_call = false;
+        gkyl_dynvec_write(gks->lte.corr_stat, fileNm);
+        gks->lte.is_first_corr_status_write_call = false;
       }
       else {
         // append to existing file
-        gkyl_dynvec_awrite(gks->bgk.corr_stat, fileNm);
+        gkyl_dynvec_awrite(gks->lte.corr_stat, fileNm);
       }
-      app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-      app->stat.nio += 1;
     }
-    gkyl_dynvec_clear(gks->bgk.corr_stat);
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
+    gkyl_dynvec_clear(gks->lte.corr_stat);
+  }
+}
+
+void
+gkyl_gyrokinetic_app_write_neut_species_max_corr_status(gkyl_gyrokinetic_app* app, int sidx)
+{
+  struct gk_neut_species *gk_ns = &app->neut_species[sidx];
+
+  if (gk_ns->lte.correct_all_moms) {
+    struct timespec wst = gkyl_wall_clock();
+
+    // write out diagnostic moments
+    const char *fmt = "%s-%s-%s.gkyl";
+    int sz = gkyl_calc_strlen(fmt, app->name, gk_ns->info.name, "corr-max-stat");
+    char fileNm[sz+1]; // ensures no buffer overflow
+    snprintf(fileNm, sizeof fileNm, fmt, app->name, gk_ns->info.name, "corr-max-stat");
+
+    int rank;
+    gkyl_comm_get_rank(app->comm, &rank);
+
+    if (rank == 0) {
+      struct timespec wtm = gkyl_wall_clock();
+      if (gk_ns->lte.is_first_corr_status_write_call) {
+        // write to a new file (this ensure previous output is removed)
+        gkyl_dynvec_write(gk_ns->lte.corr_stat, fileNm);
+        gk_ns->lte.is_first_corr_status_write_call = false;
+      }
+      else {
+        // append to existing file
+        gkyl_dynvec_awrite(gk_ns->lte.corr_stat, fileNm);
+      }
+    }
+    gkyl_dynvec_clear(gk_ns->lte.corr_stat);
   }
 }
 
@@ -1611,8 +1676,6 @@ gkyl_gyrokinetic_app_write_species_rad_drag(gkyl_gyrokinetic_app* app, int sidx,
     app->stat.nio += 4;
 
     gk_array_meta_release(mt);   
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
   }
 }
 
@@ -1669,8 +1732,6 @@ gkyl_gyrokinetic_app_write_species_rad_emissivity(gkyl_gyrokinetic_app* app, int
     }
 
     gk_array_meta_release(mt);   
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
   }
 }
 
@@ -1741,8 +1802,6 @@ gkyl_gyrokinetic_app_write_species_rad_integrated_mom(gkyl_gyrokinetic_app *app,
       app->stat.nio += 1;
     }
     gkyl_dynvec_clear(gk_s->rad.integ_diag);
-    app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-    app->stat.ndiag += 1;
   }
 }
 
@@ -1788,8 +1847,6 @@ gkyl_gyrokinetic_app_write_species_iz_react(gkyl_gyrokinetic_app* app, int sidx,
   app->stat.nio += 1;
 
   gk_array_meta_release(mt); 
-  app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-  app->stat.ndiag += 1;
 }
 
 void
@@ -1827,12 +1884,10 @@ gkyl_gyrokinetic_app_write_species_iz_react_neut(gkyl_gyrokinetic_app* app, int 
   }
   struct timespec wtm = gkyl_wall_clock();
   gkyl_comm_array_write(app->comm, &app->grid, &app->local, mt, gk_s->react_neut.coeff_react_host[ridx], fileNm);
-  app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-  app->stat.nio += 1;
+  app->stat.neut_io_tm += gkyl_time_diff_now_sec(wtm);
+  app->stat.nneut_io += 1;
 
   gk_array_meta_release(mt); 
-  app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-  app->stat.ndiag += 1;
 }
 
 //
@@ -1877,8 +1932,6 @@ gkyl_gyrokinetic_app_write_species_recomb_react(gkyl_gyrokinetic_app* app, int s
   app->stat.nio += 1;
 
   gk_array_meta_release(mt); 
-  app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-  app->stat.ndiag += 1;
 }
 
 void
@@ -1916,12 +1969,10 @@ gkyl_gyrokinetic_app_write_species_recomb_react_neut(gkyl_gyrokinetic_app* app, 
   }
   struct timespec wtm = gkyl_wall_clock();
   gkyl_comm_array_write(app->comm, &app->grid, &app->local, mt, gk_s->react_neut.coeff_react_host[ridx], fileNm);
-  app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-  app->stat.nio += 1;
+  app->stat.neut_io_tm += gkyl_time_diff_now_sec(wtm);
+  app->stat.nneut_io += 1;
 
   gk_array_meta_release(mt); 
-  app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-  app->stat.ndiag += 1;
 }
 
 //
@@ -1962,12 +2013,10 @@ gkyl_gyrokinetic_app_write_species_cx_react_neut(gkyl_gyrokinetic_app* app, int 
   }
   struct timespec wtm = gkyl_wall_clock();
   gkyl_comm_array_write(app->comm, &app->grid, &app->local, mt, gk_s->react_neut.coeff_react_host[ridx], fileNm);
-  app->stat.io_tm += gkyl_time_diff_now_sec(wtm);
-  app->stat.nio += 1;
+  app->stat.neut_io_tm += gkyl_time_diff_now_sec(wtm);
+  app->stat.nneut_io += 1;
 
   gk_array_meta_release(mt); 
-  app->stat.diag_tm += gkyl_time_diff_now_sec(wst);
-  app->stat.ndiag += 1;
 }
 
 //
@@ -1999,6 +2048,8 @@ gkyl_gyrokinetic_app_write_species_conf(gkyl_gyrokinetic_app* app, int sidx, dou
   gkyl_gyrokinetic_app_write_species_source_mom(app, sidx, tm, frame);
 
   gkyl_gyrokinetic_app_write_species_lbo_mom(app, sidx, tm, frame);
+
+  gkyl_gyrokinetic_app_write_species_bgk_cross_mom(app, sidx, tm, frame);
 
   gkyl_gyrokinetic_app_write_species_rad_emissivity(app, sidx, tm, frame);
 
@@ -2077,13 +2128,14 @@ gkyl_gyrokinetic_app_write_integrated_mom(gkyl_gyrokinetic_app *app)
   for (int i=0; i<app->num_species; ++i) {
     gkyl_gyrokinetic_app_write_species_integrated_mom(app, i);
     gkyl_gyrokinetic_app_write_species_source_integrated_mom(app, i);
-    gkyl_gyrokinetic_app_write_species_bgk_max_corr_status(app, i);
+    gkyl_gyrokinetic_app_write_species_max_corr_status(app, i);
     gkyl_gyrokinetic_app_write_species_rad_integrated_mom(app, i);
   }
 
   for (int i=0; i<app->num_neut_species; ++i) {
     gkyl_gyrokinetic_app_write_neut_species_integrated_mom(app, i);
     gkyl_gyrokinetic_app_write_neut_species_source_integrated_mom(app, i);
+    gkyl_gyrokinetic_app_write_neut_species_max_corr_status(app, i);
   }
 }
 
@@ -2124,19 +2176,12 @@ gkyl_gyrokinetic_app_write(gkyl_gyrokinetic_app* app, double tm, int frame)
 // ............. End of write functions ............... //
 // 
 
-// Take a forward Euler step with the suggested time-step dt. This may
-// not be the actual time-step taken. However, the function will never
-// take a time-step larger than dt even if it is allowed by
-// stability. The actual time-step and dt_suggested are returned in
-// the status object.
-static void
-forward_euler(gkyl_gyrokinetic_app* app, double tcurr, double dt,
+void
+gyrokinetic_rhs(gkyl_gyrokinetic_app* app, double tcurr, double dt,
   const struct gkyl_array *fin[], struct gkyl_array *fout[], 
   const struct gkyl_array *fin_neut[], struct gkyl_array *fout_neut[], 
   struct gkyl_update_status *st)
 {
-  app->stat.nfeuler += 1;
-
   double dtmin = DBL_MAX;
 
   // Compute necessary moments and boundary corrections for collisions.
@@ -2145,7 +2190,7 @@ forward_euler(gkyl_gyrokinetic_app* app, double tcurr, double dt,
       gk_species_lbo_moms(app, &app->species[i], 
         &app->species[i].lbo, fin[i]);
     }
-    if (app->species[i].bgk.collision_id == GKYL_BGK_COLLISIONS) {
+    if (app->species[i].bgk.collision_id == GKYL_BGK_COLLISIONS && !app->has_implicit_coll_scheme) {
       gk_species_bgk_moms(app, &app->species[i], 
         &app->species[i].bgk, fin[i]);
     }
@@ -2162,7 +2207,7 @@ forward_euler(gkyl_gyrokinetic_app* app, double tcurr, double dt,
           &gk_s->lbo, fin[i]);        
       }
     }
-    if (gk_s->bgk.collision_id == GKYL_BGK_COLLISIONS) {
+    if (gk_s->bgk.collision_id == GKYL_BGK_COLLISIONS && !app->has_implicit_coll_scheme) {
       if (gk_s->bgk.num_cross_collisions) {
         gk_species_bgk_cross_moms(app, &app->species[i], 
           &gk_s->bgk, fin[i]);        
@@ -2242,214 +2287,6 @@ forward_euler(gkyl_gyrokinetic_app* app, double tcurr, double dt,
   double dta = st->dt_actual = dt < dtmin ? dt : dtmin;
   st->dt_suggested = dtmin;
 
-  // Complete update of distribution functions.
-  for (int i=0; i<app->num_species; ++i) {
-    gkyl_array_accumulate(gkyl_array_scale(fout[i], dta), 1.0, fin[i]);
-  }
-  for (int i=0; i<app->num_neut_species; ++i) {
-    if (!app->neut_species[i].info.is_static) {
-      gkyl_array_accumulate(gkyl_array_scale(fout_neut[i], dta), 1.0, fin_neut[i]);
-    }
-  }
-
-}
-
-// Take time-step using the RK3 method. Also sets the status object
-// which has the actual and suggested dts used. These can be different
-// from the actual time-step.
-static struct gkyl_update_status
-rk3(gkyl_gyrokinetic_app* app, double dt0)
-{
-  const struct gkyl_array *fin[app->num_species];
-  struct gkyl_array *fout[app->num_species];
-  const struct gkyl_array *fin_neut[app->num_neut_species];
-  struct gkyl_array *fout_neut[app->num_neut_species];
-  struct gkyl_update_status st = { .success = true };
-
-  // time-stepper state
-  enum { RK_STAGE_1, RK_STAGE_2, RK_STAGE_3, RK_COMPLETE } state = RK_STAGE_1;
-
-  double tcurr = app->tcurr, dt = dt0;
-  while (state != RK_COMPLETE) {
-    switch (state) {
-      case RK_STAGE_1:
-        for (int i=0; i<app->num_species; ++i) {
-          fin[i] = app->species[i].f;
-          fout[i] = app->species[i].f1;
-        }
-        for (int i=0; i<app->num_neut_species; ++i) {
-          fin_neut[i] = app->neut_species[i].f;
-          if (!app->neut_species[i].info.is_static) {
-            fout_neut[i] = app->neut_species[i].f1;
-          }
-        }
-
-        forward_euler(app, tcurr, dt, fin, fout, fin_neut, fout_neut, &st);
-        // Compute the fields and apply BCs.
-        calc_field_and_apply_bc(app, tcurr, fout, fout_neut);
-
-        dt = st.dt_actual;
-        state = RK_STAGE_2;
-        break;
-
-      case RK_STAGE_2:
-        for (int i=0; i<app->num_species; ++i) {
-          fin[i] = app->species[i].f1;
-          fout[i] = app->species[i].fnew;
-        }
-        for (int i=0; i<app->num_neut_species; ++i) {
-          if (!app->neut_species[i].info.is_static) {
-            fin_neut[i] = app->neut_species[i].f1;
-            fout_neut[i] = app->neut_species[i].fnew;
-          }
-          else {
-            fin_neut[i] = app->neut_species[i].f;
-          }
-        }
-
-        forward_euler(app, tcurr+dt, dt, fin, fout, fin_neut, fout_neut, &st);
-
-        if (st.dt_actual < dt) {
-
-          // Recalculate the field.
-          for (int i=0; i<app->num_species; ++i)
-            fin[i] = app->species[i].f;
-          calc_field(app, tcurr, fin);
-
-          // collect stats
-          double dt_rel_diff = (dt-st.dt_actual)/st.dt_actual;
-          app->stat.stage_2_dt_diff[0] = fmin(app->stat.stage_2_dt_diff[0],
-            dt_rel_diff);
-          app->stat.stage_2_dt_diff[1] = fmax(app->stat.stage_2_dt_diff[1],
-            dt_rel_diff);
-          app->stat.nstage_2_fail += 1;
-
-          dt = st.dt_actual;
-          state = RK_STAGE_1; // restart from stage 1
-
-        } 
-        else {
-          for (int i=0; i<app->num_species; ++i) {
-            array_combine(app->species[i].f1,
-              3.0/4.0, app->species[i].f, 1.0/4.0, app->species[i].fnew, &app->species[i].local_ext);
-          }
-          for (int i=0; i<app->num_neut_species; ++i) {
-            if (!app->neut_species[i].info.is_static) {
-              array_combine(app->neut_species[i].f1,
-                3.0/4.0, app->neut_species[i].f, 1.0/4.0, app->neut_species[i].fnew, &app->neut_species[i].local_ext);
-            }
-          }
-
-          // Compute the fields and apply BCs.
-          for (int i=0; i<app->num_species; ++i) {
-            fout[i] = app->species[i].f1;
-          }
-          for (int i=0; i<app->num_neut_species; ++i) {
-            fout_neut[i] = app->neut_species[i].f1;
-          }
-          calc_field_and_apply_bc(app, tcurr, fout, fout_neut);
-
-          state = RK_STAGE_3;
-        }
-        break;
-
-      case RK_STAGE_3:
-        for (int i=0; i<app->num_species; ++i) {
-          fin[i] = app->species[i].f1;
-          fout[i] = app->species[i].fnew;
-        }
-        for (int i=0; i<app->num_neut_species; ++i) {
-          if (!app->neut_species[i].info.is_static) {
-            fin_neut[i] = app->neut_species[i].f1;
-            fout_neut[i] = app->neut_species[i].fnew;
-          }
-          else {
-            fin_neut[i] = app->neut_species[i].f;
-          }          
-        }
-
-        forward_euler(app, tcurr+dt/2, dt, fin, fout, fin_neut, fout_neut, &st);
-
-        if (st.dt_actual < dt) {
-          // Recalculate the field.
-          for (int i=0; i<app->num_species; ++i)
-            fin[i] = app->species[i].f;
-          calc_field(app, tcurr, fin);
-
-          // collect stats
-          double dt_rel_diff = (dt-st.dt_actual)/st.dt_actual;
-          app->stat.stage_3_dt_diff[0] = fmin(app->stat.stage_3_dt_diff[0],
-            dt_rel_diff);
-          app->stat.stage_3_dt_diff[1] = fmax(app->stat.stage_3_dt_diff[1],
-            dt_rel_diff);
-          app->stat.nstage_3_fail += 1;
-
-          dt = st.dt_actual;
-          state = RK_STAGE_1; // restart from stage 1
-
-          app->stat.nstage_2_fail += 1;
-        }
-        else {
-          for (int i=0; i<app->num_species; ++i) {
-            array_combine(app->species[i].f1,
-              1.0/3.0, app->species[i].f, 2.0/3.0, app->species[i].fnew, &app->species[i].local_ext);
-            gkyl_array_copy_range(app->species[i].f, app->species[i].f1, &app->species[i].local_ext);
-          }
-          for (int i=0; i<app->num_neut_species; ++i) {
-            if (!app->neut_species[i].info.is_static) {
-              array_combine(app->neut_species[i].f1,
-                1.0/3.0, app->neut_species[i].f, 2.0/3.0, app->neut_species[i].fnew, &app->neut_species[i].local_ext);
-              gkyl_array_copy_range(app->neut_species[i].f, app->neut_species[i].f1, &app->neut_species[i].local_ext);
-            }
-          }
-
-          if (app->enforce_positivity) {
-            // Apply positivity shift if requested.
-            gkyl_array_clear(app->ps_delta_m0_ions, 0.0);
-            gkyl_array_clear(app->ps_delta_m0_elcs, 0.0);
-            for (int i=0; i<app->num_species; ++i) {
-              struct gk_species *gks = &app->species[i];
-
-              // Copy f so we can calculate the moments of the change later. 
-              gkyl_array_set(gks->fnew, -1.0, gks->f);
-
-              // Shift each species.
-              gkyl_positivity_shift_gyrokinetic_advance(gks->pos_shift_op, &app->local, &gks->local,
-                gks->f, gks->m0.marr, gks->ps_delta_m0);
-
-              // Accumulate the shift density of all like-species:
-              gkyl_array_accumulate(gks->ps_delta_m0s_tot, 1.0, gks->ps_delta_m0);
-            }
-
-            // Rescale each species to enforce quasineutrality.
-            for (int i=0; i<app->num_species; ++i) {
-              struct gk_species *gks = &app->species[i];
-              gkyl_positivity_shift_gyrokinetic_quasineutrality_scale(gks->pos_shift_op, &app->local, &gks->local,
-                gks->ps_delta_m0, gks->ps_delta_m0s_tot, gks->ps_delta_m0r_tot, gks->m0.marr, gks->f);
-
-              gkyl_array_accumulate(gks->fnew, 1.0, gks->f);
-            }
-          }
-
-          // Compute the fields and apply BCs
-          for (int i=0; i<app->num_species; ++i) {
-            fout[i] = app->species[i].f;
-          }
-          for (int i=0; i<app->num_neut_species; ++i) {
-            fout_neut[i] = app->neut_species[i].f;
-          }
-          calc_field_and_apply_bc(app, tcurr, fout, fout_neut);
-
-          state = RK_COMPLETE;
-        }
-        break;
-
-      case RK_COMPLETE: // can't happen: suppresses warning
-        break;
-    }
-  }
-
-  return st;
 }
 
 struct gkyl_update_status
@@ -2458,7 +2295,7 @@ gkyl_gyrokinetic_update(gkyl_gyrokinetic_app* app, double dt)
   app->stat.nup += 1;
   struct timespec wst = gkyl_wall_clock();
 
-  struct gkyl_update_status status = rk3(app, dt);
+  struct gkyl_update_status status = app->update_func(app, dt);
   app->tcurr += status.dt_actual;
 
   app->stat.total_tm += gkyl_time_diff_now_sec(wst);
@@ -2520,7 +2357,7 @@ comm_reduce_app_stat(const gkyl_gyrokinetic_app* app,
     [NUP] = local->nup,
     [NFEULER] = local->nfeuler,
     [NSTAGE_2_FAIL] = local->nstage_2_fail,
-    [NSTAGE_3_FAIL] = local->nstage_3_fail
+    [NSTAGE_3_FAIL] = local->nstage_3_fail, 
   };
 
   int64_t l_red_global[L_END];
@@ -2531,10 +2368,57 @@ comm_reduce_app_stat(const gkyl_gyrokinetic_app* app,
   global->nstage_2_fail = l_red_global[NSTAGE_2_FAIL];
   global->nstage_3_fail = l_red_global[NSTAGE_3_FAIL];  
 
+  int64_t l_red_niter_corr[app->num_species];
+  int64_t l_red_num_corr[app->num_species];
+  for (int s=0; s<app->num_species; ++s) {
+    l_red_niter_corr[s] = local->niter_corr[s];
+    l_red_num_corr[s] = local->num_corr[s];
+  }
+
+  int64_t l_red_global_niter_corr[app->num_species];
+  int64_t l_red_global_num_corr[app->num_species];
+  gkyl_comm_allreduce_host(app->comm, GKYL_INT_64, GKYL_MAX, app->num_species, 
+    l_red_niter_corr, l_red_global_niter_corr);
+  gkyl_comm_allreduce_host(app->comm, GKYL_INT_64, GKYL_MAX, app->num_species, 
+    l_red_num_corr, l_red_global_num_corr);
+
+  for (int s=0; s<app->num_species; ++s) {
+    global->niter_corr[s] = l_red_global_niter_corr[s];
+    global->num_corr[s] = l_red_global_num_corr[s];
+  }
+
+  if (app->num_neut_species > 0) {
+    int64_t l_red_neut_niter_corr[app->num_neut_species];
+    int64_t l_red_neut_num_corr[app->num_neut_species];
+    for (int s=0; s<app->num_neut_species; ++s) {
+      l_red_neut_niter_corr[s] = local->neut_niter_corr[s];
+      l_red_neut_num_corr[s] = local->neut_num_corr[s];
+    }
+
+    int64_t l_red_global_neut_niter_corr[app->num_neut_species];
+    int64_t l_red_global_neut_num_corr[app->num_neut_species];
+    gkyl_comm_allreduce_host(app->comm, GKYL_INT_64, GKYL_MAX, app->num_neut_species, 
+      l_red_neut_niter_corr, l_red_global_neut_niter_corr);
+    gkyl_comm_allreduce_host(app->comm, GKYL_INT_64, GKYL_MAX, app->num_neut_species, 
+      l_red_neut_num_corr, l_red_global_neut_num_corr);
+
+    for (int s=0; s<app->num_neut_species; ++s) {
+      global->neut_niter_corr[s] = l_red_global_neut_niter_corr[s];
+      global->neut_num_corr[s] = l_red_global_neut_num_corr[s];
+    }
+  }
+
   enum {
     TOTAL_TM, INIT_SPECIES_TM, SPECIES_RHS_TM, 
-    SPECIES_COLL_MOM_TM, SPECIES_COL_TM, FIELD_RHS_TM, 
-    SPECIES_OMEGA_CFL_TM, MOM_TM, DIAG_TM, IO_TM, SPECIES_BC_TM, 
+    INIT_NEUT_SPECIES_TM, NEUT_SPECIES_RHS_TM, 
+    FIELD_RHS_TM, 
+    SPECIES_LTE_TM, SPECIES_COLL_MOM_TM, SPECIES_COL_TM, 
+    SPECIES_RAD_MOM_TM, SPECIES_RAD_TM, SPECIES_REACT_MOM_TM, SPECIES_REACT_TM, 
+    NEUT_SPECIES_LTE_TM, NEUT_SPECIES_COLL_MOM_TM, NEUT_SPECIES_COL_TM, 
+    NEUT_SPECIES_REACT_MOM_TM,  NEUT_SPECIES_REACT_TM,  
+    SPECIES_BC_TM, SPECIES_OMEGA_CFL_TM, DIAG_TM, IO_TM, 
+    NEUT_SPECIES_BC_TM, NEUT_SPECIES_OMEGA_CFL_TM, NEUT_DIAG_TM, NEUT_IO_TM, 
+    FIELD_DIAG_TM, FIELD_IO_TM, 
     D_END
   };
 
@@ -2542,14 +2426,31 @@ comm_reduce_app_stat(const gkyl_gyrokinetic_app* app,
     [TOTAL_TM] = local->total_tm,
     [INIT_SPECIES_TM] = local->init_species_tm,
     [SPECIES_RHS_TM] = local->species_rhs_tm,
+    [INIT_NEUT_SPECIES_TM] = local->init_neut_species_tm,
+    [NEUT_SPECIES_RHS_TM] = local->neut_species_rhs_tm,
+    [FIELD_RHS_TM] = local->field_rhs_tm,
+    [SPECIES_LTE_TM] = local->species_lte_tm,
     [SPECIES_COLL_MOM_TM] = local->species_coll_mom_tm,
     [SPECIES_COL_TM] = local->species_coll_tm,
-    [FIELD_RHS_TM] = local->field_rhs_tm,
+    [SPECIES_RAD_MOM_TM] = local->species_rad_mom_tm,
+    [SPECIES_RAD_TM] = local->species_rad_tm,
+    [SPECIES_REACT_MOM_TM] = local->species_react_mom_tm,
+    [SPECIES_REACT_TM] = local->species_react_tm,
+    [NEUT_SPECIES_LTE_TM] = local->neut_species_lte_tm,
+    [NEUT_SPECIES_COLL_MOM_TM] = local->neut_species_coll_mom_tm,
+    [NEUT_SPECIES_COL_TM] = local->neut_species_coll_tm,
+    [NEUT_SPECIES_REACT_MOM_TM] = local->neut_species_react_mom_tm,
+    [NEUT_SPECIES_REACT_TM] = local->neut_species_react_tm,
+    [SPECIES_BC_TM] = local->species_bc_tm,
     [SPECIES_OMEGA_CFL_TM] = local->species_omega_cfl_tm,
-    [MOM_TM] = local->mom_tm,
     [DIAG_TM] = local->diag_tm,
     [IO_TM] = local->io_tm,
-    [SPECIES_BC_TM] = local->species_bc_tm,
+    [NEUT_SPECIES_BC_TM] = local->neut_species_bc_tm,
+    [NEUT_SPECIES_OMEGA_CFL_TM] = local->neut_species_omega_cfl_tm,
+    [NEUT_DIAG_TM] = local->neut_diag_tm,
+    [NEUT_IO_TM] = local->neut_io_tm,
+    [FIELD_DIAG_TM] = local->field_diag_tm,
+    [FIELD_IO_TM] = local->field_io_tm,
   };
 
   double d_red_global[D_END];
@@ -2558,14 +2459,37 @@ comm_reduce_app_stat(const gkyl_gyrokinetic_app* app,
   global->total_tm = d_red_global[TOTAL_TM];
   global->init_species_tm = d_red_global[INIT_SPECIES_TM];
   global->species_rhs_tm = d_red_global[SPECIES_RHS_TM];
+  global->init_neut_species_tm = d_red_global[INIT_NEUT_SPECIES_TM];
+  global->neut_species_rhs_tm = d_red_global[NEUT_SPECIES_RHS_TM];
+
+  global->species_lte_tm = d_red_global[SPECIES_LTE_TM];
   global->species_coll_mom_tm = d_red_global[SPECIES_COLL_MOM_TM];
   global->species_coll_tm = d_red_global[SPECIES_COL_TM];
+  global->species_rad_mom_tm = d_red_global[SPECIES_RAD_MOM_TM];
+  global->species_rad_tm = d_red_global[SPECIES_RAD_TM];
+  global->species_react_mom_tm = d_red_global[SPECIES_REACT_MOM_TM];
+  global->species_react_tm = d_red_global[SPECIES_REACT_TM];
+
+  global->neut_species_lte_tm = d_red_global[NEUT_SPECIES_LTE_TM];
+  global->neut_species_coll_mom_tm = d_red_global[NEUT_SPECIES_COLL_MOM_TM];
+  global->neut_species_coll_tm = d_red_global[NEUT_SPECIES_COL_TM];
+  global->neut_species_react_mom_tm = d_red_global[NEUT_SPECIES_REACT_MOM_TM];
+  global->neut_species_react_tm = d_red_global[NEUT_SPECIES_REACT_TM];
+
   global->field_rhs_tm = d_red_global[FIELD_RHS_TM];
+
+  global->species_bc_tm = d_red_global[SPECIES_BC_TM];
   global->species_omega_cfl_tm = d_red_global[SPECIES_OMEGA_CFL_TM];
-  global->mom_tm = d_red_global[MOM_TM];
   global->diag_tm = d_red_global[DIAG_TM];
   global->io_tm = d_red_global[IO_TM];
-  global->species_bc_tm = d_red_global[SPECIES_BC_TM];
+
+  global->neut_species_bc_tm = d_red_global[NEUT_SPECIES_BC_TM];
+  global->neut_species_omega_cfl_tm = d_red_global[NEUT_SPECIES_OMEGA_CFL_TM];
+  global->neut_diag_tm = d_red_global[NEUT_DIAG_TM];
+  global->neut_io_tm = d_red_global[NEUT_IO_TM];
+
+  global->field_diag_tm = d_red_global[FIELD_DIAG_TM];
+  global->field_io_tm = d_red_global[FIELD_IO_TM];
 
   // misc data needing reduction
 
@@ -2596,7 +2520,11 @@ gkyl_gyrokinetic_app_stat_write(gkyl_gyrokinetic_app* app)
   struct tm curr_tm = *localtime(&t);
 
   gk_species_coll_tm(app);
+  gk_species_niter_corr(app); 
   gk_species_tm(app);
+
+  gk_neut_species_niter_corr(app); 
+  gk_neut_species_tm(app);
 
   struct gkyl_gyrokinetic_stat stat = { };
   comm_reduce_app_stat(app, &app->stat, &stat);
@@ -2630,8 +2558,9 @@ gkyl_gyrokinetic_app_stat_write(gkyl_gyrokinetic_app* app)
 
   gkyl_gyrokinetic_app_cout(app, fp, " total_tm : %lg,\n", stat.total_tm);
   gkyl_gyrokinetic_app_cout(app, fp, " init_species_tm : %lg,\n", stat.init_species_tm);
-
   gkyl_gyrokinetic_app_cout(app, fp, " species_rhs_tm : %lg,\n", stat.species_rhs_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " init_neut_species_tm : %lg,\n", stat.init_neut_species_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " neut_species_rhs_tm : %lg,\n", stat.neut_species_rhs_tm);
   gkyl_gyrokinetic_app_cout(app, fp, " field_rhs_tm : %lg,\n", stat.field_rhs_tm);
 
   for (int s=0; s<app->num_species; ++s) {
@@ -2639,25 +2568,53 @@ gkyl_gyrokinetic_app_stat_write(gkyl_gyrokinetic_app* app)
       stat.species_lbo_coll_drag_tm[s]);
     gkyl_gyrokinetic_app_cout(app, fp, " species_coll_diff_tm[%d] : %lg,\n", s,
       stat.species_lbo_coll_diff_tm[s]);
+    gkyl_gyrokinetic_app_cout(app, fp, " niter_corr[%d] : %ld,\n", s, 
+      stat.niter_corr[s]);
+    gkyl_gyrokinetic_app_cout(app, fp, " num_corr[%d] : %ld,\n", s, 
+      stat.num_corr[s]);    
+  }
+  for (int s=0; s<app->num_neut_species; ++s) {
+    gkyl_gyrokinetic_app_cout(app, fp, " neut_niter_corr[%d] : %ld,\n", s, 
+      stat.neut_niter_corr[s]);
+    gkyl_gyrokinetic_app_cout(app, fp, " neut_num_corr[%d] : %ld,\n", s, 
+      stat.neut_num_corr[s]);    
   }
 
+  gkyl_gyrokinetic_app_cout(app, fp, " species_lte_tm : %lg,\n", stat.species_lte_tm);
   gkyl_gyrokinetic_app_cout(app, fp, " species_coll_mom_tm : %lg,\n", stat.species_coll_mom_tm);
   gkyl_gyrokinetic_app_cout(app, fp, " species_coll_tm : %lg,\n", stat.species_coll_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " species_rad_mom_tm : %lg,\n", stat.species_rad_mom_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " species_rad_tm : %lg,\n", stat.species_rad_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " species_react_mom_tm : %lg,\n", stat.species_react_mom_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " species_react_tm : %lg,\n", stat.species_react_tm);
+
+  gkyl_gyrokinetic_app_cout(app, fp, " neut_species_lte_tm : %lg,\n", stat.neut_species_lte_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " neut_species_coll_mom_tm : %lg,\n", stat.neut_species_coll_mom_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " neut_species_coll_tm : %lg,\n", stat.neut_species_coll_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " neut_species_react_mom_tm : %lg,\n", stat.neut_species_react_mom_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " neut_species_react_tm : %lg,\n", stat.neut_species_react_tm);
 
   gkyl_gyrokinetic_app_cout(app, fp, " species_bc_tm : %lg,\n", stat.species_bc_tm);
-
-  gkyl_gyrokinetic_app_cout(app, fp, " nmom : %ld,\n", stat.nmom);
-  gkyl_gyrokinetic_app_cout(app, fp, " mom_tm : %lg\n", stat.mom_tm);
-
-  gkyl_gyrokinetic_app_cout(app, fp, " ndiag : %ld,\n", stat.ndiag);
-  gkyl_gyrokinetic_app_cout(app, fp, " diag_tm : %lg\n", stat.diag_tm);
-  
   gkyl_gyrokinetic_app_cout(app, fp, " nspecies_omega_cfl : %ld,\n", stat.nspecies_omega_cfl);
   gkyl_gyrokinetic_app_cout(app, fp, " species_omega_cfl_tm : %lg\n", stat.species_omega_cfl_tm);
-
+  gkyl_gyrokinetic_app_cout(app, fp, " ndiag : %ld,\n", stat.ndiag);
+  gkyl_gyrokinetic_app_cout(app, fp, " diag_tm : %lg\n", stat.diag_tm);
   gkyl_gyrokinetic_app_cout(app, fp, " nio : %ld,\n", stat.nio);
   gkyl_gyrokinetic_app_cout(app, fp, " io_tm : %lg\n", stat.io_tm);
-  
+
+  gkyl_gyrokinetic_app_cout(app, fp, " neut_species_bc_tm : %lg,\n", stat.neut_species_bc_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " nneut_species_omega_cfl : %ld,\n", stat.nneut_species_omega_cfl);
+  gkyl_gyrokinetic_app_cout(app, fp, " neut_species_omega_cfl_tm : %lg\n", stat.neut_species_omega_cfl_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " nneut_diag : %ld,\n", stat.nneut_diag);
+  gkyl_gyrokinetic_app_cout(app, fp, " neut_diag_tm : %lg\n", stat.neut_diag_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " nneut_io : %ld,\n", stat.nneut_io);
+  gkyl_gyrokinetic_app_cout(app, fp, " neut_io_tm : %lg\n", stat.neut_io_tm);
+
+  gkyl_gyrokinetic_app_cout(app, fp, " nfield_diag : %ld,\n", stat.nfield_diag);
+  gkyl_gyrokinetic_app_cout(app, fp, " field_diag_tm : %lg\n", stat.field_diag_tm);
+  gkyl_gyrokinetic_app_cout(app, fp, " nfield_io : %ld,\n", stat.nfield_io);
+  gkyl_gyrokinetic_app_cout(app, fp, " field_io_tm : %lg\n", stat.field_io_tm);
+
   gkyl_gyrokinetic_app_cout(app, fp, "}\n");
 
   if (rank == 0)
@@ -2843,8 +2800,8 @@ gkyl_gyrokinetic_app_from_frame_species(gkyl_gyrokinetic_app *app, int sidx, int
     gk_s->rad.is_first_integ_write_call = false;
   if (gk_s->src.source_id)
     gk_s->src.is_first_integ_write_call = false;
-  if (gk_s->bgk.collision_id == GKYL_BGK_COLLISIONS)
-    gk_s->bgk.is_first_corr_status_write_call = false;
+  if (gk_s->lte.correct_all_moms)
+    gk_s->lte.is_first_corr_status_write_call = false;
 
   return rstat;
 }
@@ -2863,6 +2820,8 @@ gkyl_gyrokinetic_app_from_frame_neut_species(gkyl_gyrokinetic_app *app, int sidx
   gk_ns->is_first_integ_write_call = false;
   if (gk_ns->src.source_id)
     gk_ns->src.is_first_integ_write_call = false;
+  if (gk_ns->lte.correct_all_moms)
+    gk_ns->lte.is_first_corr_status_write_call = false;
 
   return rstat;
 }
@@ -2906,7 +2865,7 @@ gkyl_gyrokinetic_app_read_from_frame(gkyl_gyrokinetic_app *app, int frame)
         gk_species_bflux_rhs(app, s, &s->bflux, distf[i], distf[i]);
       }
     }
-    calc_field_and_apply_bc(app, rstat.stime, distf, distf_neut);
+    gyrokinetic_calc_field_and_apply_bc(app, rstat.stime, distf, distf_neut);
   }
 
   app->field->is_first_energy_write_call = false; // Append to existing diagnostic.

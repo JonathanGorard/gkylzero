@@ -344,6 +344,11 @@ main(int argc, char **argv)
       .tempperp = eval_temp_perp_elc,
       .correct_all_moms = true,
     },
+
+    .correct_all_moms = true, 
+    .use_last_converged = true, 
+    .iter_eps = 1e-12,
+    .max_iter = 10,    
     .collisions =  {
       .collision_id = GKYL_BGK_COLLISIONS,
       .normNu = true,
@@ -353,10 +358,6 @@ main(int argc, char **argv)
       .ctx = &ctx,
       .num_cross_collisions = 1,
       .collide_with = { "ion" },
-      .correct_all_moms = true,
-      .use_last_converged = true,
-      .iter_eps = 1e-12,
-      .max_iter = 10,
     },
     
     .num_diag_moments = 6,
@@ -385,6 +386,11 @@ main(int argc, char **argv)
       .tempperp = eval_temp_perp_ion,
       .correct_all_moms = true,
     },
+
+    .correct_all_moms = true, 
+    .use_last_converged = true, 
+    .iter_eps = 1e-12,
+    .max_iter = 10,     
     .collisions =  {
       .collision_id = GKYL_BGK_COLLISIONS,
       .normNu = true,
@@ -394,10 +400,6 @@ main(int argc, char **argv)
       .ctx = &ctx,
       .num_cross_collisions = 1,
       .collide_with = { "elc" },
-      .correct_all_moms = true,
-      .use_last_converged = true,
-      .iter_eps = 1e-12,
-      .max_iter = 10,
     },
 
     .num_diag_moments = 6,

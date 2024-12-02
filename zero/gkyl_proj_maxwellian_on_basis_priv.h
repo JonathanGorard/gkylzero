@@ -1,4 +1,6 @@
 #include <gkyl_proj_maxwellian_on_basis.h>
+#include <gkyl_mat.h>
+#include <gkyl_mat_priv.h>
 
 GKYL_CU_DH
 static inline void
@@ -26,6 +28,9 @@ struct gkyl_proj_maxwellian_on_basis {
   int num_conf_basis; // number of conf-space basis functions
   int num_phase_basis; // number of phase-space basis functions
 
+  const struct gkyl_basis *phase_basis_on_dev; // Pointer to phase-space basis functions on device
+  const struct gkyl_basis *conf_basis_on_dev; // Pointer to configuration space basis functions on device
+
   const struct gkyl_velocity_map *vel_map; // Velocity space mapping object.
 
   bool use_gpu;
@@ -48,24 +53,20 @@ struct gkyl_proj_maxwellian_on_basis {
   struct gkyl_array *fun_at_ords; // function (Maxwellian) evaluated at
                                   // ordinates in a cell.
   int *p2c_qidx;  // Mapping between conf-space and phase-space ordinates.
+
+  // for fm at the quadrature points
+  struct gkyl_array *fm_quad; // D.L. added 06/06/2024.
+  struct gkyl_array *den_quad; 
+  struct gkyl_array *upar_quad; 
+  struct gkyl_array *vtsq_quad; 
+  struct gkyl_array *bmag_quad; 
+  struct gkyl_array *jactot_quad; 
+  struct gkyl_array *expamp_quad; 
+
+  struct gkyl_mat_mm_array_mem *phase_nodal_to_modal_mem; // structure of data which converts
+                                                          // stores the info to convert phase
+                                                          // space nodal to modal gkyl arrays
 };
-
-void
-gkyl_proj_maxwellian_on_basis_lab_mom_cu(const gkyl_proj_maxwellian_on_basis *up,
-  const struct gkyl_range *phase_r, const struct gkyl_range *conf_r,
-  const struct gkyl_array *moms, struct gkyl_array *fmax);
-
-void
-gkyl_proj_maxwellian_on_basis_prim_mom_cu(const gkyl_proj_maxwellian_on_basis *up,
-  const struct gkyl_range *phase_r, const struct gkyl_range *conf_r,
-  const struct gkyl_array *moms, const struct gkyl_array *prim_moms,
-  struct gkyl_array *fmax);
-
-void
-gkyl_proj_gkmaxwellian_on_basis_lab_mom_cu(const gkyl_proj_maxwellian_on_basis *up,
-  const struct gkyl_range *phase_r, const struct gkyl_range *conf_r,
-  const struct gkyl_array *moms, const struct gkyl_array *bmag,
-  const struct gkyl_array *jacob_tot, double mass, struct gkyl_array *fmax);
 
 void
 gkyl_proj_gkmaxwellian_on_basis_prim_mom_cu(const gkyl_proj_maxwellian_on_basis *up,

@@ -307,8 +307,8 @@ vm_species_init(struct gkyl_vm *vm, struct gkyl_vlasov_app *app, struct vm_speci
   
   // determine collision type to use in vlasov update
   s->collision_id = s->info.collisions.collision_id;
-  // initialize empty collision structs so inputs of structs are set to 0
   s->lte = (struct vm_lte) { };
+  // initialize empty collision structs so inputs of structs are set to 0
   s->lbo = (struct vm_lbo_collisions) { };
   s->bgk = (struct vm_bgk_collisions) { };
   if (s->info.output_f_lte){

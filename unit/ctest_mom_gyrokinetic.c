@@ -95,6 +95,7 @@ test_mom_gyrokinetic()
   int confGhost[] = { 1, 1, 1 }; // 3 elements because it's used by geo.
   struct gkyl_range confLocal, confLocal_ext; // local, local-ext conf-space ranges
   gkyl_create_grid_ranges(&confGrid, confGhost, &confLocal_ext, &confLocal);
+
   int velGhost[3] = { 0 };
   struct gkyl_range velLocal, velLocal_ext; // local, local-ext vel-space ranges
   gkyl_create_grid_ranges(&velGrid, velGhost, &velLocal_ext, &velLocal);

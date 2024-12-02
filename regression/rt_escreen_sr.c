@@ -204,6 +204,7 @@ evalFieldFunc(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fo
 }
 
 void
+
 calc_integrated_diagnostics(struct gkyl_tm_trigger* iot, gkyl_vlasov_app* app, double t_curr, bool force_calc)
 {
   if (gkyl_tm_trigger_check_and_bump(iot, t_curr) || force_calc) {
@@ -532,7 +533,7 @@ main(int argc, char **argv)
   }
 
   gkyl_vlasov_app_stat_write(app);
-  
+
   struct gkyl_vlasov_stat stat = gkyl_vlasov_app_stat(app);
 
   gkyl_vlasov_app_cout(app, stdout, "\n");
