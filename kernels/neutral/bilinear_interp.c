@@ -45,9 +45,9 @@ void bilinear_interp(double* x, double* y, double* z, const struct gkyl_array* x
 	for(int i=0; i<nq; i++){
 		j = -1;
 		k = -1;
-		const double *xq_d = gkyl_array_cfetch(xq, i);
-		const double *yq_d = gkyl_array_cfetch(yq, i);
-		double *zq_d = gkyl_array_fetch(zq, i);
+		const double *xq_d = (const double*) gkyl_array_cfetch(xq, i);
+		const double *yq_d = (const double*) gkyl_array_cfetch(yq, i);
+		double *zq_d = (double*) gkyl_array_fetch(zq, i);
 		while(xq_d[0]>=x[j+1]&&j<nx-2){
 			j++;
 		}

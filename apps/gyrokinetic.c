@@ -188,7 +188,8 @@ gkyl_gyrokinetic_app_new(struct gkyl_gk *gk)
       }
       else if (poly_order == 1) {
         gkyl_cart_modal_gkhybrid(&app->basis, cdim, vdim); // p=2 in vparallel
-        gkyl_cart_modal_hybrid(&app->neut_basis, cdim, vdim+1); // p=2 in v for neutral species
+	gkyl_cart_modal_tensor(&app->neut_basis, pdim+1, poly_order);
+	//gkyl_cart_modal_hybrid(&app->neut_basis, cdim, vdim+1); // p=2 in v for neutral species
       }
 
       if (app->use_gpu) {
@@ -199,7 +200,8 @@ gkyl_gyrokinetic_app_new(struct gkyl_gk *gk)
         }
         else if (poly_order == 1) {
           gkyl_cart_modal_gkhybrid_cu_dev(app->basis_on_dev.basis, cdim, vdim); // p=2 in vparallel
-          gkyl_cart_modal_hybrid_cu_dev(app->basis_on_dev.neut_basis, cdim, vdim+1); // p=2 in v for neutral species
+	  gkyl_cart_modal_tensor_cu_dev(app->basis_on_dev.neut_basis, pdim+1, poly_order);
+	  //gkyl_cart_modal_hybrid_cu_dev(app->basis_on_dev.neut_basis, cdim, vdim+1); // p=2 in v for neutral species
         }
       }
       break;

@@ -155,7 +155,7 @@ char* get_adas_file_loc(char* filename){
  */
 char* concat(const char *s1, const char *s2)
 {
-    char *result = malloc(strlen(s1) + strlen(s2) + 1); // +1 for the null-terminator
+  char *result = (char*) malloc(strlen(s1) + strlen(s2) + 1); // +1 for the null-terminator
     if(result == NULL){
       fprintf(stderr,"Error in allocating memory for string in adf11.c");
       exit(EXIT_FAILURE);

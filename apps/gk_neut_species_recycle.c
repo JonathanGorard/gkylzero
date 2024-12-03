@@ -35,7 +35,7 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
   recyc->emit_ghost_r = (recyc->edge == GKYL_LOWER_EDGE) ? &s->lower_ghost[recyc->dir] : &s->upper_ghost[recyc->dir];
   recyc->emit_skin_r = (recyc->edge == GKYL_LOWER_EDGE) ? &s->lower_skin[recyc->dir] : &s->upper_skin[recyc->dir];
   recyc->buffer = s->bc_buffer;
-  // TNB: failing here
+
   recyc->f_emit = mkarr(app->use_gpu, app->neut_basis.num_basis, recyc->emit_buff_r->volume);
   struct gkyl_array *proj_buffer = mkarr(false, app->neut_basis.num_basis, recyc->emit_buff_r->volume);
 

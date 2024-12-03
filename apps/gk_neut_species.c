@@ -78,6 +78,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
   else 
     s->omega_cfl = gkyl_malloc(sizeof(double));
 
+  s->model_id = GKYL_MODEL_CANONICAL_PB;
   if (!s->info.is_static) {
     // allocate additional distribution function arrays for time stepping
     s->f1 = mkarr(app->use_gpu, app->neut_basis.num_basis, s->local_ext.volume);
@@ -91,26 +92,36 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     gkyl_cart_modal_serendip(&surf_basis, pdim-1, app->poly_order);
     gkyl_cart_modal_tensor(&surf_quad_basis, pdim-1, app->poly_order);
 
-    // always 3v
-    int alpha_surf_sz = 3*surf_basis.num_basis; 
-    int sgn_alpha_surf_sz = 3*surf_quad_basis.num_basis; // sign(alpha) is store at quadrature points
+    // Begin canonical pb
+    s->hamil = mkarr(app->use_gpu, app->neut_basis.num_basis, s->local_ext.volume);
+    s->hamil_host = s->hamil;
+    
+    // Call updater to evaluate hamiltonian
+    struct gkyl_dg_gk_neut_hamil* hamil_calc = gkyl_dg_gk_neut_hamil_new(&s->grid, &app->neut_basis, app->use_gpu);
+    gkyl_dg_gk_neut_hamil_calc(hamil_calc, &app->local, &s->local, app->gk_geom->gij, s->hamil);
+    
+    if (app->use_gpu) {
+      s->hamil_host = mkarr(false, app->neut_basis.num_basis, s->local_ext.volume);
+      gkyl_array_copy(s->hamil_host, s->hamil);
+    }
+
+    int alpha_surf_sz = (cdim+vdim)*surf_basis.num_basis; 
+    int sgn_alpha_surf_sz = (cdim+vdim)*surf_quad_basis.num_basis; // sign(alpha) is store at quadrature points
 
     // allocate arrays to store fields: 
-    // 1. alpha_surf (surface phase space flux)
+    // 1. alpha_surf (surface phase space velocity)
     // 2. sgn_alpha_surf (sign(alpha_surf) at quadrature points)
     // 3. const_sgn_alpha (boolean for if sign(alpha_surf) is a constant, either +1 or -1)
     s->alpha_surf = mkarr(app->use_gpu, alpha_surf_sz, s->local_ext.volume);
     s->sgn_alpha_surf = mkarr(app->use_gpu, sgn_alpha_surf_sz, s->local_ext.volume);
-    s->const_sgn_alpha = mk_int_arr(app->use_gpu, 3, s->local_ext.volume);
-    // 4. cotangent vectors e^i = g^ij e_j 
-    s->cot_vec = mkarr(app->use_gpu, 9*app->confBasis.num_basis, app->local_ext.volume);
+    s->const_sgn_alpha = mk_int_arr(app->use_gpu, (2*cdim), s->local_ext.volume);
 
     // Pre-compute alpha_surf, sgn_alpha_surf, const_sgn_alpha, and cot_vec since they are time-independent
-    struct gkyl_dg_calc_vlasov_gen_geo_vars *calc_vars = gkyl_dg_calc_vlasov_gen_geo_vars_new(&s->grid, 
-      &app->confBasis, &app->neut_basis, app->gk_geom, app->use_gpu);
-    gkyl_dg_calc_vlasov_gen_geo_vars_alpha_surf(calc_vars, &app->local, &s->local, &s->local_ext, 
+    struct gkyl_dg_calc_canonical_pb_vars *calc_vars = gkyl_dg_calc_canonical_pb_vars_new(&s->grid, 
+      &app->confBasis, &app->neut_basis, app->use_gpu);
+    gkyl_dg_calc_canonical_pb_vars_alpha_surf(calc_vars, &app->local, &s->local, &s->local_ext, s->hamil,
       s->alpha_surf, s->sgn_alpha_surf, s->const_sgn_alpha);
-    gkyl_dg_calc_vlasov_gen_geo_vars_cot_vec(calc_vars, &app->local, s->cot_vec);
+    gkyl_dg_calc_canonical_pb_vars_release(calc_vars);
   }
 
   // by default, we do not have zero-flux boundary conditions in any direction
@@ -150,7 +161,6 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     }
   }
 
-  s->model_id = GKYL_MODEL_GEN_GEO;
   s->react_neut = (struct gk_react) { };
   s->bgk = (struct gk_bgk_collisions) { };
   if (!s->info.is_static) {
@@ -235,11 +245,18 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
   s->bc_buffer_lo_fixed = mkarr(app->use_gpu, app->neut_basis.num_basis, buff_sz);
   s->bc_buffer_up_fixed = mkarr(app->use_gpu, app->neut_basis.num_basis, buff_sz);
 
+  // initialize boundary fluxes for diagnostics and bcs
+  if (!s->info.is_static)
+    gk_neut_species_bflux_init(app, s, &s->bflux); 
+
+  s->recyc_lo = false;
+  s->recyc_up = false;
   for (int d=0; d<cdim; ++d) {
     // Copy BCs by default.
     enum gkyl_bc_basic_type bctype = GKYL_BC_COPY;
     if (s->lower_bc[d].type == GKYL_SPECIES_RECYCLE) {
-      ;
+      s->recyc_lo = true;
+      gk_neut_species_recycle_init(app, &s->bc_recycle_lo, d, GKYL_LOWER_EDGE, s->lower_bc[d].aux_ctx, app->use_gpu);
     }
     else { 
       if (s->lower_bc[d].type == GKYL_SPECIES_COPY) 
@@ -266,7 +283,8 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     }
 
     if (s->upper_bc[d].type == GKYL_SPECIES_RECYCLE) {
-      ;
+      s->recyc_up = true;
+      gk_neut_species_recycle_init(app, &s->bc_recycle_up, d, GKYL_UPPER_EDGE, s->upper_bc[d].aux_ctx, app->use_gpu);
     }
     else {
       // Upper BC updater. Copy BCs by default.
@@ -391,7 +409,7 @@ gk_neut_species_apply_bc(gkyl_gyrokinetic_app *app, const struct gk_neut_species
 
       switch (species->lower_bc[d].type) {
         case GKYL_SPECIES_RECYCLE:
-          ;
+          gk_neut_species_recycle_apply_bc(app, &species->bc_recycle_lo, f);;
           break;
         case GKYL_SPECIES_COPY:
         case GKYL_SPECIES_REFLECT:
@@ -409,7 +427,7 @@ gk_neut_species_apply_bc(gkyl_gyrokinetic_app *app, const struct gk_neut_species
 
       switch (species->upper_bc[d].type) {
         case GKYL_SPECIES_RECYCLE:
-          ;
+          gk_neut_species_recycle_apply_bc(app, &species->bc_recycle_up, f);
           break;
         case GKYL_SPECIES_COPY:
         case GKYL_SPECIES_REFLECT:
@@ -509,12 +527,12 @@ gk_neut_species_release(const gkyl_gyrokinetic_app* app, const struct gk_neut_sp
   // Copy BCs are allocated by default. Need to free.
   for (int d=0; d<app->cdim; ++d) {
     if (s->lower_bc[d].type == GKYL_SPECIES_RECYCLE) 
-      ;
+      gk_neut_species_recycle_release(&s->bc_recycle_lo);
     else 
       gkyl_bc_basic_release(s->bc_lo[d]);
     
     if (s->upper_bc[d].type == GKYL_SPECIES_RECYCLE) 
-      ;
+      gk_neut_species_recycle_release(&s->bc_recycle_up);
     else 
       gkyl_bc_basic_release(s->bc_up[d]);
   }
