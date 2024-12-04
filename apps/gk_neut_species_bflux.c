@@ -1,6 +1,7 @@
 #include <assert.h>
-#include <gkyl_gyrokinetic_priv.h>
+#include <gkyl_mom_canonical_pb.h>
 #include <gkyl_dg_updater_moment.h>
+#include <gkyl_gyrokinetic_priv.h>
 
 void 
 gk_neut_species_bflux_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_species *s, struct gk_boundary_fluxes *bflux)
@@ -41,12 +42,13 @@ gk_neut_species_bflux_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_spec
 
     gkyl_rect_grid_init(&bflux->boundary_grid[2*i+1], ndim, lower, upper, cells);
 
+    struct gkyl_mom_canonical_pb_auxfields can_pb_inp = {.hamil = s->hamil};
     bflux->integ_moms[2*i] = gkyl_dg_updater_moment_new(&bflux->boundary_grid[2*i],
       &app->confBasis, &app->neut_basis, &bflux->conf_r[2*i], &s->local_vel, &s->local, 
-      s->model_id, 0, "Integrated", 1, app->use_gpu);
+      s->model_id, &can_pb_inp, "Integrated", 1, app->use_gpu);
     bflux->integ_moms[2*i+1] = gkyl_dg_updater_moment_new(&bflux->boundary_grid[2*i+1],
       &app->confBasis, &app->neut_basis, &bflux->conf_r[2*i+1], &s->local_vel, &s->local, 
-      s->model_id, 0, "Integrated", 1, app->use_gpu);
+      s->model_id, &can_pb_inp, "Integrated", 1, app->use_gpu);
 
     cells[i] = s->grid.cells[i];
 

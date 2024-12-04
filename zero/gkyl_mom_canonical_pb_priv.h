@@ -302,7 +302,7 @@ static const gkyl_canonical_pb_mom_kern_list ser_int_mom_kernels[] = {
   { NULL, kernel_canonical_pb_int_mom_2x2v_ser_p1, kernel_canonical_pb_int_mom_2x2v_ser_p2 }, // 3
   { NULL, kernel_canonical_pb_int_mom_2x3v_ser_p1, kernel_canonical_pb_int_mom_2x3v_ser_p2 }, // 4
   // 3x kernels
-  { NULL, NULL, NULL                                 }, // 5
+  { NULL, kernel_canonical_pb_int_mom_2x3v_ser_p1, NULL                                 }, // 5
 };
 
 

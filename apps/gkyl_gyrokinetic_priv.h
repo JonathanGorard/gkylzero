@@ -31,6 +31,7 @@
 #include <gkyl_dg_calc_gyrokinetic_vars.h>
 #include <gkyl_dg_calc_vlasov_gen_geo_vars.h>
 #include <gkyl_dg_calc_canonical_pb_vars.h>
+#include <gkyl_dg_canonical_pb.h>
 #include <gkyl_dg_cx.h>
 #include <gkyl_dg_gk_neut_hamil.h>
 #include <gkyl_dg_gyrokinetic.h>

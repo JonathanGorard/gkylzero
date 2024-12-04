@@ -6,6 +6,7 @@
 #include <gkyl_dynvec.h>
 #include <gkyl_elem_type.h>
 #include <gkyl_eqn_type.h>
+#include <gkyl_mom_canonical_pb.h>
 #include <gkyl_gyrokinetic_priv.h>
 #include <gkyl_proj_on_basis.h>
 
@@ -122,6 +123,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     gkyl_dg_calc_canonical_pb_vars_alpha_surf(calc_vars, &app->local, &s->local, &s->local_ext, s->hamil,
       s->alpha_surf, s->sgn_alpha_surf, s->const_sgn_alpha);
     gkyl_dg_calc_canonical_pb_vars_release(calc_vars);
+
   }
 
   // by default, we do not have zero-flux boundary conditions in any direction
@@ -164,8 +166,9 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
   s->react_neut = (struct gk_react) { };
   s->bgk = (struct gk_bgk_collisions) { };
   if (!s->info.is_static) {
-    struct gkyl_dg_vlasov_auxfields aux_inp = {.field = 0, .cot_vec = s->cot_vec, 
-      .alpha_surf = s->alpha_surf, .sgn_alpha_surf = s->sgn_alpha_surf, .const_sgn_alpha = s->const_sgn_alpha };
+    struct gkyl_dg_canonical_pb_auxfields aux_inp = {.hamil = s->hamil, .alpha_surf = s->alpha_surf, 
+      .sgn_alpha_surf = s->sgn_alpha_surf, .const_sgn_alpha = s->const_sgn_alpha};
+
     // Set field type and model id for neutral species in GK system and create solver
     s->field_id = GKYL_FIELD_NULL;
     s->slvr = gkyl_dg_updater_vlasov_new(&s->grid, &app->confBasis, &app->neut_basis, 
