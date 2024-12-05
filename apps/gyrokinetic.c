@@ -900,8 +900,6 @@ gkyl_gyrokinetic_app_write_species_mom(gkyl_gyrokinetic_app* app, int sidx, doub
     snprintf(fileNm, sizeof fileNm, fmt, app->name, gks->info.name,
       gks->info.diag_moments[m], frame);
 
-    const char fileNm[
-    gkyl_grid_sub_array_write(&app->grid, &app->local, 0,  app->gk_geom->jacobgeo, fileNm);
     // Rescale moment by inverse of Jacobian 
     // For Maxwellian and bi-Maxwellian moments, only have to re-scale M0
     gkyl_dg_div_op_range(gks->moms[m].mem_geo, app->confBasis, 
