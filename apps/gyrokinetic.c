@@ -420,6 +420,12 @@ gkyl_gyrokinetic_app_new(struct gkyl_gk *gk)
     if (app->neut_species[i].react_neut.num_react) {
       gk_neut_species_react_cross_init(app, &app->neut_species[i], &app->neut_species[i].react_neut);
     }
+    // initialize species wall emission terms: these rely
+    // on other species which must be allocated in the previous step
+    if (app->neut_species[i].recyc_lo)
+      gk_neut_species_recycle_cross_init(app, &app->neut_species[i], &app->neut_species[i].bc_recycle_lo);
+    if (app->neut_species[i].recyc_up)
+      gk_neut_species_recycle_cross_init(app, &app->neut_species[i], &app->neut_species[i].bc_recycle_up);
   }
 
   // initialize each plasma species and neutral species source terms
@@ -894,6 +900,8 @@ gkyl_gyrokinetic_app_write_species_mom(gkyl_gyrokinetic_app* app, int sidx, doub
     snprintf(fileNm, sizeof fileNm, fmt, app->name, gks->info.name,
       gks->info.diag_moments[m], frame);
 
+    const char fileNm[
+    gkyl_grid_sub_array_write(&app->grid, &app->local, 0,  app->gk_geom->jacobgeo, fileNm);
     // Rescale moment by inverse of Jacobian 
     // For Maxwellian and bi-Maxwellian moments, only have to re-scale M0
     gkyl_dg_div_op_range(gks->moms[m].mem_geo, app->confBasis, 

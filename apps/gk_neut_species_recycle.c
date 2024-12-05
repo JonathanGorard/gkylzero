@@ -70,12 +70,12 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
     recyc->bflux_arr[i] = recyc->impact_species[i]->bflux.flux_arr[bdir];
     recyc->k[i] = mkarr(app->use_gpu, app->confBasis.num_basis, recyc->impact_cbuff_r[i]->volume);
 
-    gkyl_bc_emission_flux_ranges(&recyc->impact_normal_r[i], recyc->dir + cdim, recyc->impact_buff_r[i],
+    // what should second arg be? 
+    gkyl_bc_emission_flux_ranges(&recyc->impact_normal_r[i], cdim, recyc->impact_buff_r[i],
       ghost, recyc->edge);
 
-    int emission_dir = 0; // because of GK velocity grid
     recyc->update[i] = gkyl_bc_emission_spectrum_new(recyc->params->spectrum_model[i],
-      recyc->params->yield_model[i], recyc->yield[i], recyc->spectrum[i], emission_dir, recyc->edge,
+      recyc->params->yield_model[i], recyc->yield[i], recyc->spectrum[i], recyc->dir, recyc->edge,
       cdim, vdim, recyc->impact_species[i]->info.mass, s->info.mass, recyc->impact_buff_r[i],
       recyc->emit_buff_r, recyc->impact_grid[i], recyc->emit_grid, app->poly_order,
       &app->neut_basis, proj_buffer, app->use_gpu);

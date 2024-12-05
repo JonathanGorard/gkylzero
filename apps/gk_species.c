@@ -426,11 +426,6 @@ gk_species_init(struct gkyl_gk *gk_app_inp, struct gkyl_gyrokinetic_app *app, st
   // determine radiation type to use in gyrokinetic update
   gks->rad = (struct gk_rad_drag) { };
 
-  // initialize boundary fluxes for diagnostics and, if present,
-  // ambipolar potential solve
-  gks->bflux = (struct gk_boundary_fluxes) { };
-  gk_species_bflux_init(app, gks, &gks->bflux); 
-
   // vtsq_min
   double tpar_min = (gks->info.mass/6.0)*gks->grid.dx[cdim]*gks->grid.dx[cdim];
   double tperp_min = vdim>1 ? (gks->info.collisions.bmag_mid/3.0)*gks->grid.dx[cdim+1] : tpar_min;
@@ -478,6 +473,11 @@ gk_species_init(struct gkyl_gk *gk_app_inp, struct gkyl_gyrokinetic_app *app, st
   // buffer arrays for fixed function boundary conditions on distribution function
   gks->bc_buffer_lo_fixed = mkarr(app->use_gpu, app->basis.num_basis, buff_sz);
   gks->bc_buffer_up_fixed = mkarr(app->use_gpu, app->basis.num_basis, buff_sz);
+
+  // initialize boundary fluxes for diagnostics and, if present,
+  // ambipolar potential solve
+  gks->bflux = (struct gk_boundary_fluxes) { };
+  gk_species_bflux_init(app, gks, &gks->bflux); 
 
   for (int d=0; d<cdim; ++d) {
     // Copy BCs by default.
@@ -652,6 +652,11 @@ gk_species_apply_ic(gkyl_gyrokinetic_app *app, struct gk_species *gks, double t0
 
   // We are pre-computing source for now as it is time-independent.
   gk_species_source_calc(app, gks, &gks->src, t0);
+
+  gkyl_dg_calc_gyrokinetic_vars_alpha_surf(gks->calc_gk_vars, 
+    &app->local, &gks->local, &gks->local_ext, gks->phi,
+    gks->alpha_surf, gks->sgn_alpha_surf, gks->const_sgn_alpha);
+  gk_species_bflux_rhs(app, gks, &gks->bflux, gks->f, gks->f);
 }
 
 void

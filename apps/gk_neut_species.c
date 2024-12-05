@@ -502,7 +502,6 @@ gk_neut_species_release(const gkyl_gyrokinetic_app* app, const struct gk_neut_sp
     gkyl_array_release(s->alpha_surf);
     gkyl_array_release(s->sgn_alpha_surf);
     gkyl_array_release(s->const_sgn_alpha);
-    gkyl_array_release(s->cot_vec);
 
     // release equation object and solver
     gkyl_dg_eqn_release(s->eqn_vlasov);
