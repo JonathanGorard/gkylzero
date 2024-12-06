@@ -70,7 +70,6 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
     recyc->bflux_arr[i] = recyc->impact_species[i]->bflux.flux_arr[bdir];
     recyc->k[i] = mkarr(app->use_gpu, app->confBasis.num_basis, recyc->impact_cbuff_r[i]->volume);
 
-    // what should second arg be? 
     gkyl_bc_emission_flux_ranges(&recyc->impact_normal_r[i], cdim, recyc->impact_buff_r[i],
       ghost, recyc->edge);
 
