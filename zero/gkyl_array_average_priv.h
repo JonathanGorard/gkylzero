@@ -83,6 +83,9 @@ struct gkyl_array_average {
   // Single-cell sub-volume element (length for 1D avg, area for 2D)
   double subvol;
 
+  // Volume of the subdomain averaged over.
+  double avg_dirs_vol;
+
   // Single cell average kernel.
   array_average_t kernel;  
 
