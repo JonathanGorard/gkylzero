@@ -142,8 +142,8 @@ create_ctx(void)
   double vpar_max_ion = 4.0 * vti; // Domain boundary (ion velocity space: parallel velocity direction).
   double mu_max_ion = (3.0 / 2.0) * 0.5 * mass_ion * pow(4.0 * vti,2) / (2.0 * B0); // Domain boundary (ion velocity space: magnetic moment direction).
  
-  double t_end = 0; //1e-6; // Final simulation time.
-  int num_frames = 0; //1; // Number of output frames.
+  double t_end = 100e-6; // Final simulation time.
+  int num_frames = 10; // Number of output frames.
   int int_diag_calc_num = num_frames*100;
   double dt_failure_tol = 1.0e-4; // Minimum allowable fraction of initial time-step.
   int num_failures_max = 20; // Maximum allowable number of consecutive small time-steps.
@@ -433,7 +433,7 @@ main(int argc, char **argv)
     .cells = { cells_v[0], cells_v[1] },
     .polarization_density = ctx.n0,
 
-    //.is_static = true,
+    .is_static = true,
 
     .projection = {
       .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM,
@@ -458,7 +458,7 @@ main(int argc, char **argv)
     .cells = { cells_v[0], cells_v[1] },
     .polarization_density = ctx.n0,
 
-    //.is_static = true,
+    .is_static = true,
 
     .projection = {
       .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM, 
@@ -531,13 +531,13 @@ main(int argc, char **argv)
 
     .bcz = {
       .lower = { .type = GKYL_SPECIES_RECYCLE,
-		 .aux_ctx = bc_ctx, },
+    		 .aux_ctx = bc_ctx, },
       .upper = { .type = GKYL_SPECIES_RECYCLE,
                  .aux_ctx = bc_ctx, },
     },
     
-    .num_diag_moments = 3,
-    .diag_moments = { "M0", "M1i", "M2"},
+    .num_diag_moments = 4,
+    .diag_moments = { "M0", "M1i", "M2", "LTEMoments"},
   };
 
   // Field.
@@ -554,6 +554,8 @@ main(int argc, char **argv)
   struct gkyl_gk app_inp = {
     .name = "gk_neut_recycle_3x2v_p1",
     .skip_field = true,
+
+    //.cfl_frac = 0.1,
 
     .cdim = 3, .vdim = 2,
     .lower = { -0.5, -0.5, -0.5 * ctx.Lz},
