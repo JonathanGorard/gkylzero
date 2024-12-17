@@ -101,7 +101,7 @@ create_ctx(void)
 
   double nu_frac = 0.1; // Collision frequency fraction.
 
-  double rec_frac = 0.1; // Recycling coefficient for neutral BCs.
+  double rec_frac = 1.0; // Recycling coefficient for neutral BCs.
 
   double k_perp_rho_s = 0.2; // Product of perpendicular wavenumber and ion-sound gyroradius.
 
@@ -134,9 +134,9 @@ create_ctx(void)
   double n_peak = 4.0 * sqrt(5.0) / 3.0 / c_s_src * 0.5 * n_src; // Peak number density.
 
   // Simulation parameters
-  int Nz = 64; // Cell count (configuration space: z-direction).
-  int Nvpar = 8; // Cell count (velocity space: parallel velocity direction).
-  int Nmu = 6; // Cell count (velocity space: magnetic moment direction).
+  int Nz = 224; // Cell count (configuration space: z-direction).
+  int Nvpar = 16; // Cell count (velocity space: parallel velocity direction).
+  int Nmu = 12; // Cell count (velocity space: magnetic moment direction).
   double Lz = 40.0; // Domain size (configuration space: z-direction).
   double vmax_neut = 4.0 * vtn; 
   double vpar_max_elc = 4.0 * vte; // Domain boundary (electron velocity space: parallel velocity direction).
@@ -479,8 +479,8 @@ main(int argc, char **argv)
 
   struct gkyl_gyrokinetic_neut_species neut = {
     .name = "neut", .mass = ctx.mass_ion,
-    .lower = { -ctx.vmax_neut, -ctx.vmax_neut, -ctx.vmax_neut},
-    .upper = { ctx.vmax_neut, ctx.vmax_neut, ctx.vmax_neut },
+    .lower = { -ctx.vpar_max_ion, -ctx.vpar_max_ion, -ctx.vpar_max_ion},
+    .upper = { ctx.vpar_max_ion, ctx.vpar_max_ion, ctx.vpar_max_ion },
     .cells = { cells_v[0], cells_v[0], cells_v[0]},
 
     .projection = {
@@ -508,7 +508,7 @@ main(int argc, char **argv)
     },
 
     .react_neut = {
-      .num_react = 2,
+      .num_react = 1,
       .react_type = {
         { .react_id = GKYL_REACT_IZ,
           .type_self = GKYL_SELF_DONOR,
