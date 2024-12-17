@@ -65,6 +65,7 @@ struct sheath_ctx
   int Nmu; // Cell count (velocity space: magnetic moment direction).
   int cells[GKYL_MAX_DIM]; // Number of cells in all directions.
   double Lz; // Domain size (configuration space: z-direction).
+  double vmax_neut; 
   double vpar_max_elc; // Domain boundary (electron velocity space: parallel velocity direction).
   double mu_max_elc; // Domain boundary (electron velocity space: magnetic moment direction).
   double vpar_max_ion; // Domain boundary (ion velocity space: parallel velocity direction).
@@ -100,7 +101,7 @@ create_ctx(void)
 
   double nu_frac = 0.1; // Collision frequency fraction.
 
-  double rec_frac = 1.0; // Recycling coefficient for neutral BCs.
+  double rec_frac = 0.1; // Recycling coefficient for neutral BCs.
 
   double k_perp_rho_s = 0.2; // Product of perpendicular wavenumber and ion-sound gyroradius.
 
@@ -133,10 +134,11 @@ create_ctx(void)
   double n_peak = 4.0 * sqrt(5.0) / 3.0 / c_s_src * 0.5 * n_src; // Peak number density.
 
   // Simulation parameters
-  int Nz = 32; // Cell count (configuration space: z-direction).
+  int Nz = 64; // Cell count (configuration space: z-direction).
   int Nvpar = 8; // Cell count (velocity space: parallel velocity direction).
   int Nmu = 6; // Cell count (velocity space: magnetic moment direction).
   double Lz = 40.0; // Domain size (configuration space: z-direction).
+  double vmax_neut = 4.0 * vtn; 
   double vpar_max_elc = 4.0 * vte; // Domain boundary (electron velocity space: parallel velocity direction).
   double mu_max_elc = (3.0 / 2.0) * 0.5 * mass_elc * pow(4.0 * vte,2) / (2.0 * B0); // Domain boundary (electron velocity space: magnetic moment direction).
   double vpar_max_ion = 4.0 * vti; // Domain boundary (ion velocity space: parallel velocity direction).
@@ -185,6 +187,7 @@ create_ctx(void)
     .Nmu = Nmu,
     .cells = {1, 1, Nz, Nvpar, Nmu},
     .Lz = Lz,
+    .vmax_neut = vmax_neut,
     .vpar_max_elc = vpar_max_elc,
     .mu_max_elc = mu_max_elc,
     .vpar_max_ion = vpar_max_ion,
@@ -476,8 +479,8 @@ main(int argc, char **argv)
 
   struct gkyl_gyrokinetic_neut_species neut = {
     .name = "neut", .mass = ctx.mass_ion,
-    .lower = { -ctx.vpar_max_ion, -ctx.vpar_max_ion, -ctx.vpar_max_ion},
-    .upper = { ctx.vpar_max_ion, ctx.vpar_max_ion, ctx.vpar_max_ion },
+    .lower = { -ctx.vmax_neut, -ctx.vmax_neut, -ctx.vmax_neut},
+    .upper = { ctx.vmax_neut, ctx.vmax_neut, ctx.vmax_neut },
     .cells = { cells_v[0], cells_v[0], cells_v[0]},
 
     .projection = {
