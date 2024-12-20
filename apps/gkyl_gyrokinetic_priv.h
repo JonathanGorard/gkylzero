@@ -369,8 +369,10 @@ struct gk_recycle_wall {
   enum gkyl_edge_loc edge;
   double *scale_ptr;
   double t_bound;
+  double rec_frac;
   bool elastic;
 
+  struct gkyl_dg_bin_op_mem *mem_geo; // memory needed in dividing moments by Jacobian
   struct gkyl_spectrum_model *spectrum_model[GKYL_MAX_SPECIES];
   struct gkyl_yield_model *yield_model[GKYL_MAX_SPECIES];
   struct gkyl_elastic_model *elastic_model;
@@ -379,6 +381,8 @@ struct gk_recycle_wall {
   struct gkyl_bc_emission_spectrum *update[GKYL_MAX_SPECIES];
   struct gkyl_bc_emission_elastic *elastic_update;
   struct gkyl_array *f_emit;
+  struct gkyl_array *init_flux;
+  struct gkyl_array *init_bflux_arr;
   struct gkyl_array *buffer;
   struct gkyl_array *elastic_yield;
   struct gkyl_array *yield[GKYL_MAX_SPECIES]; // projected secondary electron yield
@@ -389,7 +393,8 @@ struct gk_recycle_wall {
   struct gkyl_array *k[GKYL_MAX_SPECIES];
   struct gk_species *impact_species[GKYL_MAX_SPECIES]; // pointers to impacting species
   struct gkyl_range impact_normal_r[GKYL_MAX_SPECIES];
-  struct gkyl_dg_updater_moment *flux_slvr[GKYL_MAX_SPECIES]; // integrated moments
+  struct gkyl_dg_updater_moment *flux_slvr[GKYL_MAX_SPECIES]; // moments
+  struct gkyl_dg_updater_moment *init_flux_slvr; 
 
   struct gkyl_rect_grid *impact_grid[GKYL_MAX_SPECIES];
   struct gkyl_range *impact_ghost_r[GKYL_MAX_SPECIES];
@@ -399,8 +404,10 @@ struct gk_recycle_wall {
   
   struct gkyl_rect_grid *emit_grid;
   struct gkyl_range *emit_buff_r;
+  struct gkyl_range *emit_cbuff_r;
   struct gkyl_range *emit_ghost_r;
   struct gkyl_range *emit_skin_r;
+  struct gkyl_range emit_normal_r; 
 };
 
 struct gk_react {
@@ -667,7 +674,8 @@ struct gk_neut_species {
   struct gkyl_array *f, *f1, *fnew; // arrays for updates
   struct gkyl_array *cflrate; // CFL rate in each cell
   struct gkyl_array *bc_buffer; // buffer for BCs (used by bc_basic)
-  struct gkyl_array *bc_buffer_lo_fixed, *bc_buffer_up_fixed; // fixed buffers for time independent BCs 
+  struct gkyl_array *bc_buffer_lo_fixed, *bc_buffer_up_fixed; // fixed buffers for time independent BCs
+  struct gkyl_array *bc_buffer_lo_recyc, *bc_buffer_up_recyc; // fixed buffers for time independent BCs 
 
   struct gkyl_array *f_host; // host copy for use IO and initialization
 

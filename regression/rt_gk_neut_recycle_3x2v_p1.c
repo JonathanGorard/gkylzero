@@ -144,8 +144,8 @@ create_ctx(void)
   double vpar_max_ion = 4.0 * vti; // Domain boundary (ion velocity space: parallel velocity direction).
   double mu_max_ion = (3.0 / 2.0) * 0.5 * mass_ion * pow(4.0 * vti,2) / (2.0 * B0); // Domain boundary (ion velocity space: magnetic moment direction).
  
-  double t_end = 100e-6; // Final simulation time.
-  int num_frames = 10; // Number of output frames.
+  double t_end = 1e-7; // Final simulation time.
+  int num_frames = 1; // Number of output frames.
   int int_diag_calc_num = num_frames*100;
   double dt_failure_tol = 1.0e-4; // Minimum allowable fraction of initial time-step.
   int num_failures_max = 20; // Maximum allowable number of consecutive small time-steps.
@@ -479,8 +479,8 @@ main(int argc, char **argv)
 
   struct gkyl_gyrokinetic_neut_species neut = {
     .name = "neut", .mass = ctx.mass_ion,
-    .lower = { -ctx.vmax_neut, -ctx.vmax_neut, -ctx.vmax_neut},
-    .upper = { ctx.vmax_neut, ctx.vmax_neut, ctx.vmax_neut },
+    .lower = { -ctx.vpar_max_ion, -ctx.vpar_max_ion, -ctx.vpar_max_ion},
+    .upper = { ctx.vpar_max_ion, ctx.vpar_max_ion, ctx.vpar_max_ion },
     .cells = { cells_v[0], cells_v[0], cells_v[0]},
 
     .projection = {
@@ -534,9 +534,29 @@ main(int argc, char **argv)
 
     .bcz = {
       .lower = { .type = GKYL_SPECIES_RECYCLE,
-    		 .aux_ctx = bc_ctx, },
+		 .aux_ctx = bc_ctx,
+    		 .projection = {
+		   .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM, 
+		   .ctx_density = &ctx,
+		   .density = evalDensityNeutInit,
+		   .ctx_upar = &ctx,
+		   .udrift= evalUdriftInit,
+		   .ctx_temp = &ctx,
+		   .temp = evalTempNeutInit,      
+		 },
+		},
       .upper = { .type = GKYL_SPECIES_RECYCLE,
-                 .aux_ctx = bc_ctx, },
+                 .aux_ctx = bc_ctx,
+		 .projection = {
+		   .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM, 
+		   .ctx_density = &ctx,
+		   .density = evalDensityNeutInit,
+		   .ctx_upar = &ctx,
+		   .udrift= evalUdriftInit,
+		   .ctx_temp = &ctx,
+		   .temp = evalTempNeutInit,      
+		 },
+		},
     },
     
     .num_diag_moments = 4,

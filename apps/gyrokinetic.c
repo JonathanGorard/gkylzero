@@ -420,12 +420,12 @@ gkyl_gyrokinetic_app_new(struct gkyl_gk *gk)
     if (app->neut_species[i].react_neut.num_react) {
       gk_neut_species_react_cross_init(app, &app->neut_species[i], &app->neut_species[i].react_neut);
     }
-    // initialize species wall emission terms: these rely
-    // on other species which must be allocated in the previous step
-    if (app->neut_species[i].recyc_lo)
-      gk_neut_species_recycle_cross_init(app, &app->neut_species[i], &app->neut_species[i].bc_recycle_lo);
-    if (app->neut_species[i].recyc_up)
-      gk_neut_species_recycle_cross_init(app, &app->neut_species[i], &app->neut_species[i].bc_recycle_up);
+    /* // initialize species wall emission terms: these rely */
+    /* // on other species which must be allocated in the previous step */
+    /* if (app->neut_species[i].recyc_lo) */
+    /*   gk_neut_species_recycle_cross_init(app, &app->neut_species[i], &app->neut_species[i].bc_recycle_lo); */
+    /* if (app->neut_species[i].recyc_up) */
+    /*   gk_neut_species_recycle_cross_init(app, &app->neut_species[i], &app->neut_species[i].bc_recycle_up); */
   }
 
   // initialize each plasma species and neutral species source terms
@@ -559,17 +559,26 @@ void
 gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
 {
   app->tcurr = t0;
+  struct gkyl_array *distf[app->num_species];
+  struct gkyl_array *distf_neut[app->num_neut_species];
   for (int i=0; i<app->num_species; ++i)
     gkyl_gyrokinetic_app_apply_ic_species(app, i, t0);
-  for (int i=0; i<app->num_neut_species; ++i)
+  for (int i=0; i<app->num_neut_species; ++i) {
+    struct gk_neut_species *gkns = &app->neut_species[i];
+    distf_neut[i] = gkns->f;
     gkyl_gyrokinetic_app_apply_ic_neut_species(app, i, t0);
-
+    gk_neut_species_bflux_rhs(app, gkns, &gkns->bflux, distf_neut[i], distf_neut[i]);
+    // initialize species wall emission terms: these rely
+    // on other species which must be allocated in the previous step
+    if (app->neut_species[i].recyc_lo)
+      gk_neut_species_recycle_cross_init(app, &app->neut_species[i], &app->neut_species[i].bc_recycle_lo);
+    if (app->neut_species[i].recyc_up)
+      gk_neut_species_recycle_cross_init(app, &app->neut_species[i], &app->neut_species[i].bc_recycle_up);
+  }
   for (int i=0; i<app->num_species; ++i)
     gkyl_gyrokinetic_app_apply_ic_cross_species(app, i, t0);
 
   // Compute the fields and apply BCs.
-  struct gkyl_array *distf[app->num_species];
-  struct gkyl_array *distf_neut[app->num_neut_species];
   for (int i=0; i<app->num_species; ++i) {
     distf[i] = app->species[i].f;
   }
@@ -590,6 +599,7 @@ gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
       gk_species_bflux_rhs(app, s, &s->bflux, distf[i], distf[i]);
     }
   }
+  
   gyrokinetic_calc_field_and_apply_bc(app, 0., distf, distf_neut);
 }
 
