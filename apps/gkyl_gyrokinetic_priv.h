@@ -370,10 +370,10 @@ struct gk_recycle_wall {
   enum gkyl_edge_loc edge;
   double *scale_ptr;
   double t_bound;
-  double rec_frac;
   bool elastic;
   struct gkyl_array *f0;
-
+  double delta[GKYL_MAX_SPECIES]; // recycling fraction
+  
   gkyl_ghost_surf_calc *f0_flux_slvr;
   struct gkyl_dg_bin_op_mem *mem_geo; // memory needed in dividing moments by Jacobian
   struct gkyl_spectrum_model *spectrum_model[GKYL_MAX_SPECIES];
