@@ -354,6 +354,7 @@ struct gk_bgk_collisions {
 struct gk_boundary_fluxes {
   struct gk_species_moment gammai[2*GKYL_MAX_CDIM]; // integrated moments
   struct gkyl_rect_grid boundary_grid[2*GKYL_MAX_CDIM];
+  struct gkyl_rect_grid conf_boundary_grid[2*GKYL_MAX_CDIM];
   struct gkyl_array *flux_arr[2*GKYL_MAX_CDIM];
   struct gkyl_array *mom_arr[2*GKYL_MAX_CDIM];
   struct gkyl_range flux_r[2*GKYL_MAX_CDIM];
@@ -371,7 +372,9 @@ struct gk_recycle_wall {
   double t_bound;
   double rec_frac;
   bool elastic;
+  struct gkyl_array *f0;
 
+  gkyl_ghost_surf_calc *f0_flux_slvr;
   struct gkyl_dg_bin_op_mem *mem_geo; // memory needed in dividing moments by Jacobian
   struct gkyl_spectrum_model *spectrum_model[GKYL_MAX_SPECIES];
   struct gkyl_yield_model *yield_model[GKYL_MAX_SPECIES];
@@ -380,6 +383,7 @@ struct gk_recycle_wall {
 
   struct gkyl_bc_emission_spectrum *update[GKYL_MAX_SPECIES];
   struct gkyl_bc_emission_elastic *elastic_update;
+  struct gkyl_rect_grid *init_conf_grid;
   struct gkyl_array *f_emit;
   struct gkyl_array *init_flux;
   struct gkyl_array *init_bflux_arr;
@@ -396,6 +400,7 @@ struct gk_recycle_wall {
   struct gkyl_dg_updater_moment *flux_slvr[GKYL_MAX_SPECIES]; // moments
   struct gkyl_dg_updater_moment *init_flux_slvr; 
 
+  struct gkyl_rect_grid *impact_conf_grid[GKYL_MAX_SPECIES];
   struct gkyl_rect_grid *impact_grid[GKYL_MAX_SPECIES];
   struct gkyl_range *impact_ghost_r[GKYL_MAX_SPECIES];
   struct gkyl_range *impact_skin_r[GKYL_MAX_SPECIES];
@@ -1671,7 +1676,7 @@ void gk_neut_species_bflux_release(const struct gkyl_gyrokinetic_app *app, const
 /** gk_neut_species_recycle API **/
 
 void gk_neut_species_recycle_init(struct gkyl_gyrokinetic_app *app, struct gk_recycle_wall *recyc,
-  int dir, enum gkyl_edge_loc edge, void *ctx, bool use_gpu);
+  int dir, enum gkyl_edge_loc edge, void *ctx, struct gkyl_array *f0, struct gk_neut_species *s, bool use_gpu);
 
 void gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_species *s,
   struct gk_recycle_wall *recyc);

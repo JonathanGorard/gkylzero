@@ -144,8 +144,8 @@ create_ctx(void)
   double vpar_max_ion = 4.0 * vti; // Domain boundary (ion velocity space: parallel velocity direction).
   double mu_max_ion = (3.0 / 2.0) * 0.5 * mass_ion * pow(4.0 * vti,2) / (2.0 * B0); // Domain boundary (ion velocity space: magnetic moment direction).
  
-  double t_end = 1e-7; // Final simulation time.
-  int num_frames = 1; // Number of output frames.
+  double t_end = 100e-6; // Final simulation time.
+  int num_frames = 10; // Number of output frames.
   int int_diag_calc_num = num_frames*100;
   double dt_failure_tol = 1.0e-4; // Minimum allowable fraction of initial time-step.
   int num_failures_max = 20; // Maximum allowable number of consecutive small time-steps.
@@ -264,8 +264,14 @@ evalDensityNeutInit(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTR
   else {
     n = n0*(pow(1.0/cosh((-Lz/2. + z)/0.2),2.0) + 1.e-6);
   }
-  fout[0] = n;
-  
+  fout[0] = n; 
+}
+
+void
+evalUnitDensity(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fout, void* ctx)
+{
+  struct sheath_ctx *app = ctx;
+  fout[0] = 1.0; 
 }
 
 void
@@ -533,12 +539,12 @@ main(int argc, char **argv)
     },
 
     .bcz = {
-      .lower = { .type = GKYL_SPECIES_RECYCLE,
+	    .lower = { .type = GKYL_SPECIES_RECYCLE,
 		 .aux_ctx = bc_ctx,
     		 .projection = {
 		   .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM, 
 		   .ctx_density = &ctx,
-		   .density = evalDensityNeutInit,
+		   .density = evalUnitDensity,
 		   .ctx_upar = &ctx,
 		   .udrift= evalUdriftInit,
 		   .ctx_temp = &ctx,
@@ -550,7 +556,7 @@ main(int argc, char **argv)
 		 .projection = {
 		   .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM, 
 		   .ctx_density = &ctx,
-		   .density = evalDensityNeutInit,
+		   .density = evalUnitDensity,
 		   .ctx_upar = &ctx,
 		   .udrift= evalUdriftInit,
 		   .ctx_temp = &ctx,

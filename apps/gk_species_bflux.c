@@ -7,6 +7,7 @@ gk_species_bflux_init(struct gkyl_gyrokinetic_app *app, struct gk_species *s, st
 { 
   // Allocate solver.
   bflux->flux_slvr = gkyl_ghost_surf_calc_new(&s->grid, s->eqn_gyrokinetic, app->cdim, app->use_gpu);
+  int cdim = app->cdim;
   int ndim = app->cdim + app->vdim;
   int cells[GKYL_MAX_DIM], ghost[GKYL_MAX_DIM];
   double lower[GKYL_MAX_DIM], upper[GKYL_MAX_DIM];
@@ -40,12 +41,14 @@ gk_species_bflux_init(struct gkyl_gyrokinetic_app *app, struct gk_species *s, st
     upper[i] = s->grid.lower[i] + s->grid.dx[i];
 
     gkyl_rect_grid_init(&bflux->boundary_grid[2*i], ndim, lower, upper, cells);
+    gkyl_rect_grid_init(&bflux->conf_boundary_grid[2*i], cdim, lower, upper, cells);
 
     upper[i] = s->grid.upper[i];
     lower[i] = s->grid.upper[i] - s->grid.dx[i];
 
     gkyl_rect_grid_init(&bflux->boundary_grid[2*i+1], ndim, lower, upper, cells);
-
+    gkyl_rect_grid_init(&bflux->conf_boundary_grid[2*i+1], cdim, lower, upper, cells);
+	
     bflux->integ_moms[2*i] = gkyl_dg_updater_moment_gyrokinetic_new(&bflux->boundary_grid[2*i],
       &app->confBasis, &app->basis, &bflux->conf_r[2*i], s->info.mass, s->vel_map, app->gk_geom, 0, 1, app->use_gpu);
     bflux->integ_moms[2*i+1] = gkyl_dg_updater_moment_gyrokinetic_new(&bflux->boundary_grid[2*i+1],

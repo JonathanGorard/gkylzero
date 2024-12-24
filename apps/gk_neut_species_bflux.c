@@ -8,6 +8,7 @@ gk_neut_species_bflux_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_spec
 { 
   // allocate solver
   bflux->flux_slvr = gkyl_ghost_surf_calc_new(&s->grid, s->eqn_vlasov, app->cdim, app->use_gpu);
+  int cdim = app->cdim;
   int ndim = app->cdim + app->vdim + 1;
   int cells[GKYL_MAX_DIM], ghost[GKYL_MAX_DIM];
   double lower[GKYL_MAX_DIM], upper[GKYL_MAX_DIM];
@@ -36,11 +37,13 @@ gk_neut_species_bflux_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_spec
     upper[i] = s->grid.lower[i] + s->grid.dx[i];
 
     gkyl_rect_grid_init(&bflux->boundary_grid[2*i], ndim, lower, upper, cells);
+    gkyl_rect_grid_init(&bflux->conf_boundary_grid[2*i], cdim, lower, upper, cells);
 
     upper[i] = s->grid.upper[i];
     lower[i] = s->grid.upper[i] - s->grid.dx[i];
 
     gkyl_rect_grid_init(&bflux->boundary_grid[2*i+1], ndim, lower, upper, cells);
+    gkyl_rect_grid_init(&bflux->conf_boundary_grid[2*i+1], cdim, lower, upper, cells);
 
     struct gkyl_mom_canonical_pb_auxfields can_pb_inp = {.hamil = s->hamil};
     bflux->integ_moms[2*i] = gkyl_dg_updater_moment_new(&bflux->boundary_grid[2*i],
