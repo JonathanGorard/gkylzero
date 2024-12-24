@@ -166,11 +166,12 @@ gkyl_dg_mul_conf_phase_op_accumulate_range_cu_kernel(struct gkyl_basis cbasis,
   int vdim = pbasis.ndim - cdim;
   int poly_order = cbasis.poly_order;
   // On GPU, choose kernels which parallelize over components
-  mul_accumulate_comp_par_op_t mul_accumulate_op = choose_mul_conf_phase_accumulate_comp_par_kern(pbasis.b_type, 
-    cdim, vdim, poly_order);
-
+  // mul_accumulate_comp_par_op_t mul_accumulate_op = choose_mul_conf_phase_accumulate_comp_par_kern(pbasis.b_type, 
+  //   cdim, vdim, poly_order);
+  mul_accumulate_op_t mul_accumulate_op = choose_mul_conf_phase_accumulate_kern(pbasis.b_type, cdim, vdim, poly_order);
+  
   int pidx[GKYL_MAX_DIM];
-  long linc2 = threadIdx.y + blockIdx.y*blockDim.y;
+  //long linc2 = threadIdx.y + blockIdx.y*blockDim.y;
   for (unsigned long linc1 = threadIdx.x + blockIdx.x*blockDim.x;
       linc1 < prange.volume;
       linc1 += gridDim.x*blockDim.x)
@@ -192,7 +193,7 @@ gkyl_dg_mul_conf_phase_op_accumulate_range_cu_kernel(struct gkyl_basis cbasis,
     long cstart = gkyl_range_idx(&crange, cidx);
     const double *cop_d = (const double*) gkyl_array_cfetch(cop, cstart);
 
-    mul_accumulate_op(a, cop_d, pop_d, pout_d, linc2);
+    mul_accumulate_op(a, cop_d, pop_d, pout_d);
   }
 }
 
@@ -203,10 +204,14 @@ gkyl_dg_mul_conf_phase_op_accumulate_range_cu(struct gkyl_basis *cbasis,
   const struct gkyl_array* cop, const struct gkyl_array* pop,
   const struct gkyl_range *crange, const struct gkyl_range *prange)
 {
-  dim3 dimGrid, dimBlock;
-  int num_phase_basis = pbasis->num_basis;
-  gkyl_parallelize_components_kernel_launch_dims(&dimGrid, &dimBlock, *prange, num_phase_basis);
-  gkyl_dg_mul_conf_phase_op_accumulate_range_cu_kernel<<<dimGrid, dimBlock>>>(*cbasis, *pbasis,
+  // dim3 dimGrid, dimBlock;
+  // int num_phase_basis = pbasis->num_basis;
+  // gkyl_parallelize_components_kernel_launch_dims(&dimGrid, &dimBlock, *prange, num_phase_basis);
+  // gkyl_dg_mul_conf_phase_op_accumulate_range_cu_kernel<<<dimGrid, dimBlock>>>(*cbasis, *pbasis,
+  //   pout->on_dev, a, cop->on_dev, pop->on_dev, *crange, *prange);
+  int nblocks = prange->nblocks;
+  int nthreads = prange->nthreads;
+  gkyl_dg_mul_conf_phase_op_accumulate_range_cu_kernel<<<nblocks, nthreads>>>(*cbasis, *pbasis,
     pout->on_dev, a, cop->on_dev, pop->on_dev, *crange, *prange);
 }
 

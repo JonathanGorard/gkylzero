@@ -268,8 +268,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
       struct gk_proj gk_proj_bc_lo;
       gk_neut_species_projection_init(app, s, s->lower_bc[d].projection, &gk_proj_bc_lo);
       gk_neut_species_projection_calc(app, s, &gk_proj_bc_lo, s->f1, 0.0); // Temporarily use f1.
-      gkyl_grid_sub_array_write(&s->grid, &s->local, 0, s->f1, "recyc_f0.gkyl");
-      
+          
       gk_neut_species_recycle_init(app, &s->bc_recycle_lo, d, GKYL_LOWER_EDGE, s->lower_bc[d].aux_ctx, s->f1, s, app->use_gpu);
       gkyl_bc_basic_buffer_fixed_func(s->bc_lo[d], s->bc_buffer_lo_recyc, s->f1);
       gkyl_array_clear(s->f1, 0.0);

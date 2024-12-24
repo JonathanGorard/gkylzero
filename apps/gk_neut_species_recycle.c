@@ -71,7 +71,7 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
   char fileNm[sz+1]; // ensures no buffer overflow
   snprintf(fileNm, sizeof fileNm, fmt, recyc->edge);
   //gkyl_grid_sub_array_write(recyc->emit_grid, recyc->emit_buff_r, 0, recyc->f_emit, fileNm);
-  gkyl_grid_sub_array_write(&s->grid, &s->local, 0, recyc->f0, fileNm);
+  //  gkyl_grid_sub_array_write(&s->grid, &s->local, 0, recyc->f0, fileNm);
   
   // Calculate the flux
   gkyl_bc_emission_flux_ranges(&recyc->emit_normal_r, recyc->dir + cdim, recyc->emit_buff_r,
@@ -92,7 +92,7 @@ gk_neut_species_recycle_cross_init(struct gkyl_gyrokinetic_app *app, struct gk_n
   int sz1 = gkyl_calc_strlen(fmt1, recyc->edge);
   char fileNm1[sz1+1]; // ensures no buffer overflow
   snprintf(fileNm1, sizeof fileNm1, fmt1, recyc->edge);
-  gkyl_grid_sub_array_write(recyc->init_conf_grid, recyc->emit_cbuff_r, 0, recyc->init_flux, fileNm1);
+  //gkyl_grid_sub_array_write(recyc->init_conf_grid, recyc->emit_cbuff_r, 0, recyc->init_flux, fileNm1);
 
   // try to write out the init_flux M0 moment.
 
