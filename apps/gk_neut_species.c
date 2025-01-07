@@ -123,7 +123,7 @@ gk_neut_species_init(struct gkyl_gk *gk, struct gkyl_gyrokinetic_app *app, struc
     gkyl_dg_calc_canonical_pb_vars_alpha_surf(calc_vars, &app->local, &s->local, &s->local_ext, s->hamil,
       s->alpha_surf, s->sgn_alpha_surf, s->const_sgn_alpha);
     gkyl_dg_calc_canonical_pb_vars_release(calc_vars);
-
+    gkyl_dg_gk_neut_hamil_release(hamil_calc);
   }
 
   // by default, we do not have zero-flux boundary conditions in any direction
@@ -520,6 +520,8 @@ gk_neut_species_release(const gkyl_gyrokinetic_app* app, const struct gk_neut_sp
 
   gkyl_velocity_map_release(s->vel_map);
 
+  gk_neut_species_bflux_release(app, &s->bflux);
+
   if (!s->info.is_static) {
     gkyl_array_release(s->f1);
     gkyl_array_release(s->fnew);
@@ -528,6 +530,10 @@ gk_neut_species_release(const gkyl_gyrokinetic_app* app, const struct gk_neut_sp
     gkyl_array_release(s->alpha_surf);
     gkyl_array_release(s->sgn_alpha_surf);
     gkyl_array_release(s->const_sgn_alpha);
+
+    gkyl_array_release(s->hamil);
+    if (app->use_gpu)
+      gkyl_array_release(s->hamil_host);
 
     // release equation object and solver
     gkyl_dg_eqn_release(s->eqn_vlasov);
@@ -556,12 +562,17 @@ gk_neut_species_release(const gkyl_gyrokinetic_app* app, const struct gk_neut_sp
   for (int d=0; d<app->cdim; ++d) {
     if (s->lower_bc[d].type == GKYL_SPECIES_RECYCLE) { 
       gk_neut_species_recycle_release(&s->bc_recycle_lo);
+      gkyl_bc_basic_release(s->bc_lo[d]);
+      gkyl_array_release(s->bc_buffer_lo_recyc);
     }
     else 
       gkyl_bc_basic_release(s->bc_lo[d]);
     
-    if (s->upper_bc[d].type == GKYL_SPECIES_RECYCLE) 
+    if (s->upper_bc[d].type == GKYL_SPECIES_RECYCLE) {
       gk_neut_species_recycle_release(&s->bc_recycle_up);
+      gkyl_bc_basic_release(s->bc_up[d]);
+      gkyl_array_release(s->bc_buffer_up_recyc);
+    }
     else 
       gkyl_bc_basic_release(s->bc_up[d]);
   }

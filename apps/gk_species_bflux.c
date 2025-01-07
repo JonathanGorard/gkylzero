@@ -106,6 +106,9 @@ gk_species_bflux_release(const struct gkyl_gyrokinetic_app *app, const struct gk
 {
   gkyl_ghost_surf_calc_release(bflux->flux_slvr);
   for (int i=0; i<2*app->cdim; ++i) {
+    gkyl_array_release(bflux->mom_arr[i]);
     gk_species_moment_release(app, &bflux->gammai[i]);
+    gkyl_dg_updater_moment_release(bflux->integ_moms[i]);
+    gkyl_array_release(bflux->flux_arr[i]);
   }
 }

@@ -170,6 +170,7 @@ gk_neut_species_recycle_release(const struct gk_recycle_wall *recyc)
   gkyl_array_release(recyc->init_flux);
   gkyl_array_release(recyc->init_bflux_arr);
   gkyl_dg_updater_moment_release(recyc->init_flux_slvr);
+  gkyl_dg_bin_op_mem_release(recyc->mem_geo);
   if (recyc->elastic) {
     gkyl_array_release(recyc->elastic_yield);
     gkyl_bc_emission_elastic_release(recyc->elastic_update);

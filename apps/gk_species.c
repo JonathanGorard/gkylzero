@@ -919,13 +919,13 @@ gk_species_release(const gkyl_gyrokinetic_app* app, const struct gk_species *s)
 {
   // release various arrays and species objects
   gkyl_array_release(s->f);
+  gkyl_array_release(s->bc_buffer);
+  gkyl_array_release(s->bc_buffer_lo_fixed);
+  gkyl_array_release(s->bc_buffer_up_fixed);
   if (!s->info.is_static) {
     gkyl_array_release(s->f1);
     gkyl_array_release(s->fnew);
     gkyl_array_release(s->cflrate);
-    gkyl_array_release(s->bc_buffer);
-    gkyl_array_release(s->bc_buffer_lo_fixed);
-    gkyl_array_release(s->bc_buffer_up_fixed);
   }
   if (s->info.init_from_file.type == 0)
     gk_species_projection_release(app, &s->proj_init);
