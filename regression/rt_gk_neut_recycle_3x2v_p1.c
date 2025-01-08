@@ -135,8 +135,8 @@ create_ctx(void)
 
   // Simulation parameters
   int Nz = 64; // Cell count (configuration space: z-direction).
-  int Nvpar = 8; // Cell count (velocity space: parallel velocity direction).
-  int Nmu = 6; // Cell count (velocity space: magnetic moment direction).
+  int Nvpar = 16; // Cell count (velocity space: parallel velocity direction).
+  int Nmu = 8; // Cell count (velocity space: magnetic moment direction).
   double Lz = 40.0; // Domain size (configuration space: z-direction).
   double vmax_neut = 4.0 * vtn; 
   double vpar_max_elc = 4.0 * vte; // Domain boundary (electron velocity space: parallel velocity direction).
@@ -728,7 +728,9 @@ main(int argc, char **argv)
   gkyl_gyrokinetic_app_release(app);
   gkyl_gyrokinetic_comms_release(comm);
   gkyl_bc_emission_release(bc_ctx);
-
+  gkyl_emission_spectrum_model_release(spectrum_model[0]);
+  gkyl_emission_yield_model_release(yield_model[0]);
+  
 #ifdef GKYL_HAVE_MPI
   if (app_args.use_mpi) {
     MPI_Finalize();
