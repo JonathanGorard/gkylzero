@@ -36,7 +36,7 @@ struct gk_app_ctx {
   double me;  double qe;
   double mi;  double qi;
   double n0;  double Te0;  double Ti0;
-  double T0;  double vtn;
+  double T0;  double vtn;  double c_s;
 
   double rec_frac;
 
@@ -310,9 +310,19 @@ void density_init(double t, const double * GKYL_RESTRICT xn, double* GKYL_RESTRI
   struct gk_app_ctx *app = ctx;
   double n0 = app->n0;
 
-  fout[0] = 0.5*n0*(0.5*(1.+tanh(2.*(2.-25.*(x-0.05))))+0.01);
+  fout[0] = 0.5*n0*(0.5*(1.+tanh(2.*(2.-25.*(x+0.05))))+0.01);
 }
 
+// Initial upar for ions
+void upar_ion(double t, const double * GKYL_RESTRICT xn, double* GKYL_RESTRICT fout, void *ctx)
+{
+  double x = xn[0], z = xn[2];
+  struct gk_app_ctx *app = ctx;
+  double c_s = app->c_s;
+  double Lz = app->Lz;
+  
+  fout[0] = z/(Lz/2.0)*c_s;
+}
 // Initial electron temperature.
 void temp_elc(double t, const double * GKYL_RESTRICT xn, double* GKYL_RESTRICT fout, void *ctx)
 {
@@ -321,7 +331,7 @@ void temp_elc(double t, const double * GKYL_RESTRICT xn, double* GKYL_RESTRICT f
   struct gk_app_ctx *app = ctx;
   double Te0 = app->Te0;
 
-  fout[0] = Te0*((1./3.)*(2.+tanh(2.*(2.-25.*(x-0.05))))+0.01);
+  fout[0] = Te0*((1./3.)*(2.+tanh(2.*(2.-25.*(x+0.05))))+0.01);
 }
 
 // Initial ion temperature.
@@ -332,7 +342,7 @@ void temp_ion(double t, const double * GKYL_RESTRICT xn, double* GKYL_RESTRICT f
   struct gk_app_ctx *app = ctx;
   double Ti0 = app->Ti0;
 
-  fout[0] = Ti0*((1./3.)*(2.+tanh(2.*(2.-25.*(x-0.05))))+0.01);
+  fout[0] = Ti0*((1./3.)*(2.+tanh(2.*(2.-25.*(x+0.05))))+0.01);
 }
 
 void neut_density_init(double t, const double* GKYL_RESTRICT xn, double* GKYL_RESTRICT fout, void* ctx)
@@ -569,9 +579,9 @@ create_ctx(void)
   double floor_src = 1e-2;
 
   // Grid parameters
-  int Nx = 16;
-  int Ny = 16;
-  int Nz = 8;
+  int Nx = 8;
+  int Ny = 8;
+  int Nz = 16;
   int Nvpar = 8;
   int Nmu = 6;
   int poly_order = 1;
@@ -582,9 +592,9 @@ create_ctx(void)
   double mu_max_ion = mi*pow(4*vti,2)/(2*B0);
   double vmax_neut = 4.*vtn; 
 
-  double write_phase_freq = 0.2;
-  double t_end = 1.e-6;
-  int num_frames = 10;
+  double write_phase_freq = 1; //0.1;
+  double t_end = 1.e-10;
+  int num_frames = 1;
   int int_diag_calc_num = num_frames*100;
   double dt_failure_tol = 1.0e-4; // Minimum allowable fraction of initial time-step.
   int num_failures_max = 20; // Maximum allowable number of consecutive small time-steps.
@@ -613,7 +623,7 @@ create_ctx(void)
     .me = me,  .qe = qe,
     .mi = mi,  .qi = qi,
     .n0 = n0,  .Te0 = Te0,  .Ti0 = Ti0,
-    .T0 = T0,  .vtn = vtn,
+    .T0 = T0,  .vtn = vtn,  .c_s = c_s,
 
     .rec_frac = rec_frac,
   
@@ -776,6 +786,41 @@ main(int argc, char **argv)
       },
     },
 
+    .react_neut = {
+      .num_react = 3,
+      .react_type = {
+        { .react_id = GKYL_REACT_IZ,
+          .type_self = GKYL_SELF_ELC,
+          .ion_id = GKYL_ION_H,
+	  .elc_nm = "elc",
+          .ion_nm = "ion",
+          .donor_nm = "D0",
+	  .charge_state = 0,
+          .ion_mass = ctx.mi,
+          .elc_mass = ctx.me,
+        },
+	{ .react_id = GKYL_REACT_RECOMB,
+          .type_self = GKYL_SELF_ELC,
+          .ion_id = GKYL_ION_H,
+	  .elc_nm = "elc",
+          .ion_nm = "ion",
+          .donor_nm = "D0",
+	  .charge_state = 0,
+          .ion_mass = ctx.mi,
+          .elc_mass = ctx.me,
+        },
+	{ .react_id = GKYL_REACT_CX,
+          .type_self = GKYL_SELF_ELC,
+          .ion_id = GKYL_ION_H,
+	  .elc_nm = "elc", // gets called for other rxn. fix this?
+          .ion_nm = "ion",
+          .partner_nm = "D0",
+          .ion_mass = ctx.mi,
+          .partner_mass = ctx.mi,
+        },
+      },
+    },
+
     .bcx = {
       .lower={.type = GKYL_SPECIES_ABSORB,},
       .upper={.type = GKYL_SPECIES_ABSORB,},
@@ -812,7 +857,7 @@ main(int argc, char **argv)
       .ctx_upar = &ctx,
       .ctx_temp = &ctx,
       .density = density_init,
-      .upar = zero_func,
+      .upar = upar_ion,
       .temp = temp_ion,
     },
 
@@ -844,6 +889,41 @@ main(int argc, char **argv)
         .density = density_ion_srcGB,
         .upar = zero_func,
         .temp = temp_ion_srcGB,
+      },
+    },
+
+    .react_neut = {
+      .num_react = 3,
+      .react_type = {
+        { .react_id = GKYL_REACT_IZ,
+          .type_self = GKYL_SELF_ION,
+          .ion_id = GKYL_ION_H,
+	  .elc_nm = "elc",
+          .ion_nm = "ion",
+          .donor_nm = "D0",
+	  .charge_state = 0,
+          .ion_mass = ctx.mi,
+          .elc_mass = ctx.me,
+        },
+	{ .react_id = GKYL_REACT_RECOMB,
+          .type_self = GKYL_SELF_ION,
+          .ion_id = GKYL_ION_H,
+	  .elc_nm = "elc",
+          .ion_nm = "ion",
+          .donor_nm = "D0",
+	  .charge_state = 0,
+          .ion_mass = ctx.mi,
+          .elc_mass = ctx.me,
+        },
+	{ .react_id = GKYL_REACT_CX,
+          .type_self = GKYL_SELF_ION,
+          .ion_id = GKYL_ION_H,
+	  .elc_nm = "elc", // gets called for other rxn. fix this?
+          .ion_nm = "ion",
+          .partner_nm = "D0",
+          .ion_mass = ctx.mi,
+          .partner_mass = ctx.mi,
+        },
       },
     },
 
@@ -879,7 +959,7 @@ main(int argc, char **argv)
     },
 
     .react_neut = {
-      .num_react = 2,
+      .num_react = 3,
       .react_type = {
         { .react_id = GKYL_REACT_IZ,
           .type_self = GKYL_SELF_DONOR,
@@ -917,32 +997,36 @@ main(int argc, char **argv)
       .lower={.type = GKYL_SPECIES_ABSORB,},
       .upper={.type = GKYL_SPECIES_ABSORB,},
     },
+    /* .bcz = { */
+    /*   .lower={.type = GKYL_SPECIES_ABSORB,}, */
+    /*   .upper={.type = GKYL_SPECIES_ABSORB,}, */
+    /* }, */
 
     .bcz = {
       .lower = { .type = GKYL_SPECIES_RECYCLE,
         .aux_ctx = bc_ctx,
-    	.projection = {
-    	  .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM,
-    	  .ctx_density = &ctx,
-    	  .density = unit_density,
-    	  .ctx_upar = &ctx,
-    	  .udrift= udrift,
-    	  .ctx_temp = &ctx,
-    	  .temp = temp_neut,
-    	},
+	.projection = {
+	  .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM,
+	  .ctx_density = &ctx,
+	  .density = unit_density,
+	  .ctx_upar = &ctx,
+	  .udrift= udrift,
+	  .ctx_temp = &ctx,
+	  .temp = temp_neut,
+	},
       },
       .upper = { .type = GKYL_SPECIES_RECYCLE,
         .aux_ctx = bc_ctx,
           .projection = {
-    	    .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM,
-    	    .ctx_density = &ctx,
-    	    .density = unit_density,
-    	    .ctx_upar = &ctx,
-    	    .udrift= udrift,
-    	    .ctx_temp = &ctx,
-    	    .temp = temp_neut,
-    	  },
-    	},
+	    .proj_id = GKYL_PROJ_MAXWELLIAN_PRIM,
+	    .ctx_density = &ctx,
+	    .density = unit_density,
+	    .ctx_upar = &ctx,
+	    .udrift= udrift,
+	    .ctx_temp = &ctx,
+	    .temp = temp_neut,
+	  },
+	},
       },
     
     .num_diag_moments = 4,
