@@ -21,8 +21,11 @@ gk_neut_species_bflux_init(struct gkyl_gyrokinetic_app *app, struct gk_neut_spec
 
   // initialize moment solver
   for (int i=0; i<app->cdim; ++i) {
-    cells[i] = 1;
+    for (int d=0; d<cdim; ++d)
+      cells[d] = s->grid.cells[d];
 
+    cells[i] = 1; 
+    
     bflux->flux_arr[2*i] = mkarr(app->use_gpu, app->neut_basis.num_basis, s->lower_ghost[i].volume);
     bflux->flux_arr[2*i+1] = mkarr(app->use_gpu, app->neut_basis.num_basis, s->upper_ghost[i].volume);
 
