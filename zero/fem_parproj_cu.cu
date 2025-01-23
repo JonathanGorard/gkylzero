@@ -119,19 +119,6 @@ gkyl_fem_parproj_set_rhs_cu(gkyl_fem_parproj *up, const struct gkyl_array *rhsin
     *up->solve_range, up->perp_range2d, up->par_range1d, up->kernels_cu, up->numnodes_global);
 }
 
-void
-gkyl_fem_parproj_set_rhs_cu(gkyl_fem_parproj *up, const struct gkyl_array *rhsin, const struct gkyl_array *phibc)
-{
-  gkyl_culinsolver_clear_rhs(up->prob_cu, 0);
-  double *rhs_cu = gkyl_culinsolver_get_rhs_ptr(up->prob_cu, 0);
-
-  const struct gkyl_array *phibc_cu = phibc? phibc->on_dev : NULL;
-  const struct gkyl_array *wgt_cu = up->has_weight_rhs? up->weight_rhs->on_dev : NULL;
-
-  gkyl_fem_parproj_set_rhs_kernel<<<rhsin->nblocks, rhsin->nthreads>>>(rhs_cu, rhsin->on_dev, wgt_cu, phibc_cu,
-    *up->solve_range, up->perp_range2d, up->par_range1d, up->kernels_cu, up->numnodes_global);
-}
-
 __global__ void
 gkyl_fem_parproj_get_sol_kernel(struct gkyl_array *phiout, const double *x_global, struct gkyl_range range,
   struct gkyl_range perp_range2d, struct gkyl_range par_range1d, struct gkyl_fem_parproj_kernels *kers,
