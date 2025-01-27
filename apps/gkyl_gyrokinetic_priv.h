@@ -583,6 +583,11 @@ struct gk_species {
   void (*bc_func)(gkyl_gyrokinetic_app *app, const struct gk_species *species,
     struct gkyl_array *f);
   void (*release_func)(const gkyl_gyrokinetic_app* app, const struct gk_species *s);
+  void (*write_func)(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm, int frame);
+  void (*write_mom_func)(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm, int frame);
+  void (*calc_integrated_mom_func)(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm);
+  void (*write_integrated_mom_func)(gkyl_gyrokinetic_app* app, struct gk_species *gks);
+  
 
   double *omega_cfl; // Maximum Omega_CFL in this MPI process.
   double *m0_max; // Maximum number density in this MPI process.
@@ -1473,6 +1478,127 @@ void gk_species_dynamic_release(const gkyl_gyrokinetic_app* app, const struct gk
  * @param species Species object to delete
  */
 void gk_species_static_release(const gkyl_gyrokinetic_app* app, const struct gk_species *s);
+
+/**
+ * Parent write function to call function pointer.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_write(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm, int frame);
+
+/**
+ * Write function for dynamic species.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_dynamic_write(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm, int frame);
+
+/**
+ * Write function for static species.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_static_write(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm, int frame);
+
+/**
+ * Parent moment write function to call function pointer.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_write_mom(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm, int frame);
+
+/**
+ * Write function for dynamic species moments.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_dynamic_write_mom(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm, int frame);
+
+/**
+ * Write function for static species moment.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_static_write_mom(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm, int frame);
+
+/**
+ * Parent calc integrated moment function to call function pointer.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_calc_integrated_mom(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm);
+
+/**
+ * Calc function for dynamic species integrated moments.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_dynamic_calc_integrated_mom(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm);
+
+/**
+ * Calc function for static species integrated moments.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_static_calc_integrated_mom(gkyl_gyrokinetic_app* app, struct gk_species *gks, double tm);
+
+/**
+ * Parent write integrated moment function to call function pointer.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_write_integrated_mom(gkyl_gyrokinetic_app* app, struct gk_species *gks);
+
+/**
+ * Write function for dynamic species integrated moments.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_dynamic_write_integrated_mom(gkyl_gyrokinetic_app* app, struct gk_species *gks);
+
+/**
+ * Write function for static species integrated moments.
+ *
+ * @param app gyrokinetic app object
+ * @param gks Species object
+ * @param tm simulation time
+ * @param frame simulation frame
+ */
+void gk_species_static_write_integrated_mom(gkyl_gyrokinetic_app* app, struct gk_species *gks);
+
 
 /** gk_neut_species_moment API */
 
