@@ -6,6 +6,7 @@
 #include <gkyl_eqn_type.h>
 #include <gkyl_range.h>
 #include <gkyl_rect_grid.h>
+#include <gkyl_velocity_map.h>
 
 // Object type
 typedef struct gkyl_vlasov_lte_correct gkyl_vlasov_lte_correct;
@@ -20,6 +21,7 @@ struct gkyl_vlasov_lte_correct_inp {
   const struct gkyl_range *conf_range; // Configuration-space range
   const struct gkyl_range *conf_range_ext; // Extended configuration-space range (for internal memory allocations)
   const struct gkyl_range *vel_range; // velocity space range
+  const struct gkyl_velocity_map *vel_map; // Velocity space mapping object.
   const struct gkyl_range *phase_range; // phase space range
   const struct gkyl_array *gamma; // SR quantitiy: gamma = sqrt(1 + p^2)
   const struct gkyl_array *gamma_inv; // SR quantitiy: 1/gamma = 1/sqrt(1 + p^2)
@@ -27,6 +29,7 @@ struct gkyl_vlasov_lte_correct_inp {
   const struct gkyl_array *det_h; // (Can-pb quantitiy) determinant of the metric tensor 
   const struct gkyl_array *hamil; // (Can-pb quantitiy) Hamiltonian
   enum gkyl_model_id model_id; // Enum identifier for model type (e.g., SR, see gkyl_eqn_type.h)
+  enum gkyl_quad_type quad_type; // type of quadrature to use: defaults to Gaussian
   bool use_last_converged; // Boolean for if we are using the results of the iterative scheme
                            // *even if* the scheme fails to converge. 
   bool use_gpu; // bool for gpu usage
