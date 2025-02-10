@@ -30,6 +30,7 @@
 // Magic IDs for use in distinguishing various species and field types.
 enum gyrokinetic_magic_ids {
   GYROKINETIC_SPECIES_DEFAULT = 100, // Standard gyrokinetic species.
+  GYROKINETIC_NEUTRAL_SPECIES_DEFAULT, // Neutral gyrokinetic species.
   GYROKINETIC_FIELD_DEFAULT, // Gyrokinetic Poisson equation.
 };
 
@@ -59,7 +60,7 @@ struct gyrokinetic_species_lw {
   bool has_density_init_func; // Is there a density initialization function?
   struct lua_func_ctx density_init_func_ref; // Lua registry reference to density initialization function.
 
-  bool has_Upar_init_func; // Is there a parallel velociy initialiation function?
+  bool has_Upar_init_func; // Is there a parallel velocity initialiation function?
   struct lua_func_ctx Upar_init_func_ref; // Lua registry reference to parallel velocity initialization function.
 
   bool has_temp_init_func; // Is there a temperature initialization function?
@@ -71,7 +72,7 @@ struct gyrokinetic_species_lw {
   bool has_perp_temp_init_func; // Is there a perpendicular temperature initialization function?
   struct lua_func_ctx perp_temp_init_func_ref; // Lua registry reference to perpendicular temperature initialization function.
 
-  bool correct_all_moms; // Are we correcting all moments in projection, or only density?
+  bool proj_correct_all_moms; // Are we correcting all moments in projection, or only density?
 
   enum gkyl_collision_id collision_id; // Collision type.
   
@@ -88,10 +89,10 @@ struct gyrokinetic_species_lw {
   double collision_eps0; // Vacuum permittivity for calculating collision frequency.
   double collision_eV; // Elementary charge for calculating collision frequency.
 
-  bool collision_correct_all_moms; // Are we correcting all moments in collisions, or only density?
-  double collision_iter_eps; // Error tolerance for moment fixes in collisions (density is always exact).
-  int collision_max_iter; // Maximum number of iterations for moment fixes in collisions.
-  bool collision_use_last_converged; // Use last iteration value in collisions regardless of convergence?
+  bool correct_all_moms; // Are we correcting all moments in collisions, or only density?
+  double iter_eps; // Error tolerance for moment fixes in collisions (density is always exact).
+  int max_iter; // Maximum number of iterations for moment fixes in collisions.
+  bool use_last_converged; // Use last iteration value in collisions regardless of convergence?
 
   enum gkyl_source_id source_id; // Source type.
 
@@ -136,6 +137,22 @@ struct gyrokinetic_species_lw {
   int react_charge_state[GKYL_MAX_REACT]; // Charge state of species in the reaction.
   double react_ion_mass[GKYL_MAX_REACT]; // Mass of ion species in the reaction.
   double react_elc_mass[GKYL_MAX_REACT]; // Mass of electron species in the reaction.
+
+  int num_neut_react; // Number of neutral reaction types.
+
+  enum gkyl_react_id neut_react_id[GKYL_MAX_REACT]; // What type of neutral reaction (ionization, charge exchange, recombination)?
+  enum gkyl_react_self_type neut_react_type_self[GKYL_MAX_REACT]; // What is the role of the species in this neutral reaction?
+  enum gkyl_ion_type neut_react_ion_id[GKYL_MAX_REACT]; // What type of ion in the neutral reaction?
+
+  char neut_react_elc_nm[GKYL_MAX_REACT][128]; // Name of electron species in the neutral reaction.
+  char neut_react_ion_nm[GKYL_MAX_REACT][128]; // Name of ion species in the neutral reaction.
+  char neut_react_donor_nm[GKYL_MAX_REACT][128]; // Name of donor species in the neutral reaction.
+  char neut_react_recvr_nm[GKYL_MAX_REACT][128]; // Name of receiver species in the neutral reaction.
+  char neut_react_partner_nm[GKYL_MAX_REACT][128]; // Name of partner species in the neutral reaction.
+
+  int neut_react_charge_state[GKYL_MAX_REACT]; // Charge state of species in the neutral reaction.
+  double neut_react_ion_mass[GKYL_MAX_REACT]; // Mass of ion species in the neutral reaction.
+  double neut_react_elc_mass[GKYL_MAX_REACT]; // Mass of electron species in the neutral reaction.
 };
 
 static int
@@ -246,7 +263,7 @@ gyrokinetic_species_lw_new(lua_State *L)
   bool has_perp_temp_init_func = false;
   int perp_temp_init_func_ref = LUA_NOREF;
 
-  bool correct_all_moms = false;
+  bool proj_correct_all_moms = false;
 
   with_lua_tbl_tbl(L, "projection") {
     proj_id = glua_tbl_get_integer(L, "projectionID", 0);
@@ -281,7 +298,7 @@ gyrokinetic_species_lw_new(lua_State *L)
       has_perp_temp_init_func = true;
     }
 
-    correct_all_moms = glua_tbl_get_bool(L, "correctAllMoments", false);
+    proj_correct_all_moms = glua_tbl_get_bool(L, "correctAllMoments", false);
   }
 
   enum gkyl_collision_id collision_id = GKYL_NO_COLLISIONS;
@@ -299,10 +316,16 @@ gyrokinetic_species_lw_new(lua_State *L)
   double collision_eps0 = 0.0;
   double collision_eV = 0.0;
 
-  bool collision_correct_all_moms = false;
-  double collision_iter_eps = pow(10.0, -12.0);
-  int collision_max_iter = 100;
-  bool collision_use_last_converged = true;
+  bool correct_all_moms = false;
+  double iter_eps = 0.0;
+  int max_iter = 0; 
+  bool use_last_converged = true; 
+  with_lua_tbl_tbl(L, "correct") {
+    correct_all_moms = glua_tbl_get_bool(L, "correctAllMoments", false);
+    iter_eps = glua_tbl_get_number(L, "iterationEpsilon", 0.0);
+    max_iter = glua_tbl_get_integer(L, "maxIterations", 0);
+    use_last_converged = glua_tbl_get_bool(L, "useLastConverged", true);
+  }
 
   with_lua_tbl_tbl(L, "collisions") {
     collision_id = glua_tbl_get_integer(L, "collisionID", 0);
@@ -326,11 +349,6 @@ gyrokinetic_species_lw_new(lua_State *L)
     collision_hbar = glua_tbl_get_number(L, "hbar", 0.0);
     collision_eps0 = glua_tbl_get_number(L, "epsilon0", 0.0);
     collision_eV = glua_tbl_get_number(L, "eV", 0.0);
-
-    collision_correct_all_moms = glua_tbl_get_bool(L, "correctAllMoments", false);
-    collision_iter_eps = glua_tbl_get_number(L, "iterationEpsilon", 0.0);
-    collision_max_iter = glua_tbl_get_integer(L, "maxIterations", 0);
-    collision_use_last_converged = glua_tbl_get_bool(L, "useLastConverged", false);
   }
 
   enum gkyl_source_id source_id = GKYL_NO_SOURCE;
@@ -481,6 +499,56 @@ gyrokinetic_species_lw_new(lua_State *L)
       }
     }
   }
+
+  int num_neut_react = 0;
+  enum gkyl_react_id neut_react_id[GKYL_MAX_REACT];
+  enum gkyl_react_self_type neut_react_type_self[GKYL_MAX_REACT];
+  enum gkyl_ion_type neut_react_ion_id[GKYL_MAX_REACT];
+
+  char neut_react_elc_nm[GKYL_MAX_REACT][128];
+  char neut_react_ion_nm[GKYL_MAX_REACT][128];
+  char neut_react_donor_nm[GKYL_MAX_REACT][128];
+  char neut_react_recvr_nm[GKYL_MAX_REACT][128];
+  char neut_react_partner_nm[GKYL_MAX_REACT][128];
+
+  int neut_react_charge_state[GKYL_MAX_REACT];
+  double neut_react_ion_mass[GKYL_MAX_REACT];
+  double neut_react_elc_mass[GKYL_MAX_REACT];
+
+  with_lua_tbl_tbl(L, "neutralReaction") {
+    num_neut_react = glua_tbl_get_integer(L, "numReactions", 0);
+
+    with_lua_tbl_tbl(L, "reactionTypes") {
+      for (int i = 0; i < num_neut_react; i++) {
+        if (glua_tbl_iget_tbl(L, i + 1)) {
+          neut_react_id[i] = glua_tbl_get_integer(L, "reactionID", GKYL_NO_REACT);
+          neut_react_type_self[i] = glua_tbl_get_integer(L, "selfType", GKYL_SELF_ELC);
+          neut_react_ion_id[i] = glua_tbl_get_integer(L, "ionType", GKYL_ION_H);
+
+          const char* neut_react_elc_nm_char = glua_tbl_get_string(L, "electronName", "");
+          strcpy(neut_react_elc_nm[i], neut_react_elc_nm_char);
+
+          const char* neut_react_ion_nm_char = glua_tbl_get_string(L, "ionName", "");
+          strcpy(neut_react_ion_nm[i], neut_react_ion_nm_char);
+
+          const char* neut_react_donor_nm_char = glua_tbl_get_string(L, "donorName", "");
+          strcpy(neut_react_donor_nm[i], neut_react_donor_nm_char);
+
+          const char* neut_react_recvr_nm_char = glua_tbl_get_string(L, "receiverName", "");
+          strcpy(neut_react_recvr_nm[i], neut_react_recvr_nm_char);
+
+          const char* neut_react_partner_nm_char = glua_tbl_get_string(L, "partnerName", "");
+          strcpy(neut_react_partner_nm[i], neut_react_partner_nm_char);
+
+          neut_react_charge_state[i] = glua_tbl_get_integer(L, "chargeState", 0);
+          neut_react_ion_mass[i] = glua_tbl_get_number(L, "ionMass", 0.0);
+          neut_react_elc_mass[i] = glua_tbl_get_number(L, "electronMass", 0.0);
+
+          lua_pop(L, 1);
+        }
+      }
+    }
+  }
   
   struct gyrokinetic_species_lw *gks_lw = lua_newuserdata(L, sizeof(*gks_lw));
   gks_lw->magic = GYROKINETIC_SPECIES_DEFAULT;
@@ -546,7 +614,7 @@ gyrokinetic_species_lw_new(lua_State *L)
     .L = L,
   };
 
-  gks_lw->correct_all_moms = correct_all_moms;
+  gks_lw->proj_correct_all_moms = proj_correct_all_moms;
 
   gks_lw->source_id = source_id;
   gks_lw->num_sources = num_sources;
@@ -587,6 +655,11 @@ gyrokinetic_species_lw_new(lua_State *L)
     };
   }
 
+  gks_lw->correct_all_moms = correct_all_moms;
+  gks_lw->iter_eps = iter_eps;
+  gks_lw->max_iter = max_iter;
+  gks_lw->use_last_converged = use_last_converged;
+
   gks_lw->collision_id = collision_id;
 
   gks_lw->has_self_nu_func = has_self_nu_func;
@@ -608,11 +681,6 @@ gyrokinetic_species_lw_new(lua_State *L)
   gks_lw->collision_hbar = collision_hbar;
   gks_lw->collision_eps0 = collision_eps0;
   gks_lw->collision_eV = collision_eV;
-
-  gks_lw->collision_correct_all_moms = collision_correct_all_moms;
-  gks_lw->collision_iter_eps = collision_iter_eps;
-  gks_lw->collision_max_iter = collision_max_iter;
-  gks_lw->collision_use_last_converged = collision_use_last_converged;
 
   gks_lw->radiation_id = radiation_id;
 
@@ -644,6 +712,24 @@ gyrokinetic_species_lw_new(lua_State *L)
     gks_lw->react_ion_mass[i] = react_ion_mass[i];
     gks_lw->react_elc_mass[i] = react_elc_mass[i];
   }
+
+  gks_lw->num_neut_react = num_neut_react;
+
+  for (int i = 0; i < num_neut_react; i++) {
+    gks_lw->neut_react_id[i] = neut_react_id[i];
+    gks_lw->neut_react_type_self[i] = neut_react_type_self[i];
+    gks_lw->neut_react_ion_id[i] = neut_react_ion_id[i];
+
+    strcpy(gks_lw->neut_react_elc_nm[i], neut_react_elc_nm[i]);
+    strcpy(gks_lw->neut_react_ion_nm[i], neut_react_ion_nm[i]);
+    strcpy(gks_lw->neut_react_donor_nm[i], neut_react_donor_nm[i]);
+    strcpy(gks_lw->neut_react_recvr_nm[i], neut_react_recvr_nm[i]);
+    strcpy(gks_lw->neut_react_partner_nm[i], neut_react_partner_nm[i]);
+
+    gks_lw->neut_react_charge_state[i] = neut_react_charge_state[i];
+    gks_lw->neut_react_ion_mass[i] = neut_react_ion_mass[i];
+    gks_lw->neut_react_elc_mass[i] = neut_react_elc_mass[i];
+  }
   
   // Set metatable.
   luaL_getmetatable(L, GYROKINETIC_SPECIES_METATABLE_NM);
@@ -655,6 +741,175 @@ gyrokinetic_species_lw_new(lua_State *L)
 // Species constructor.
 static struct luaL_Reg gk_species_ctor[] = {
   { "new", gyrokinetic_species_lw_new },
+  { 0, 0 }
+};
+
+/* *********************** */
+/* Neutral Species methods */
+/* *********************** */
+
+// Metatable name for species input struct.
+#define GYROKINETIC_NEUTRAL_SPECIES_METATABLE_NM "GkeyllZero.App.Gyrokinetic.NeutralSpecies"
+
+// Lua userdata object for constructing neutral species input.
+struct gyrokinetic_neutral_species_lw {
+  int magic; // This must be first element in the struct.
+  
+  struct gkyl_gyrokinetic_neut_species gk_neut_species; // Input struct to construct neutral species.
+
+  enum gkyl_projection_id proj_id; // Projection type.
+
+  bool has_density_init_func; // Is there a density initialization function?
+  struct lua_func_ctx density_init_func_ref; // Lua registry reference to density initialization function.
+
+  bool has_Udrift_init_func; // Is there a drift velocity initialiation function?
+  struct lua_func_ctx Udrift_init_func_ref; // Lua registry reference to drift velocity initialization function.
+
+  bool has_temp_init_func; // Is there a temperature initialization function?
+  struct lua_func_ctx temp_init_func_ref; // Lua registry reference to temperature initialization function.
+};
+
+static int
+gyrokinetic_neutral_species_lw_new(lua_State *L)
+{
+  struct gkyl_gyrokinetic_neut_species gk_neut_species = { };
+  
+  gk_neut_species.mass = glua_tbl_get_number(L, "mass", 1.0);
+  gk_neut_species.is_static = glua_tbl_get_bool(L, "isStatic", false);
+
+  with_lua_tbl_tbl(L, "cells") {
+    for (int d = 0; d < 3; d++) {
+      gk_neut_species.cells[d] = glua_tbl_iget_integer(L, d + 1, 0);
+    }
+  }
+
+  with_lua_tbl_tbl(L, "lower") {
+    for (int d = 0; d < 3; d++) {
+      gk_neut_species.lower[d] = glua_tbl_iget_number(L, d + 1, 0.0);
+    }
+  }
+
+  with_lua_tbl_tbl(L, "upper") {
+    for (int d = 0; d < 3; d++) {
+      gk_neut_species.upper[d] = glua_tbl_iget_number(L, d + 1, 0.0);
+    }
+  }
+
+  with_lua_tbl_tbl(L, "diagnostics") {
+    int num_diag_moments = glua_objlen(L);
+
+    int n = 0;
+    for (int i = 0; i < num_diag_moments; i ++) {
+      const char *mom = glua_tbl_iget_string(L, i+1, "");
+
+      if (is_moment_name_valid(mom)) {
+        strcpy(gk_neut_species.diag_moments[n++], mom);
+      }
+    }
+
+    gk_neut_species.num_diag_moments = n;
+  }
+
+  with_lua_tbl_tbl(L, "bcx") {
+    with_lua_tbl_tbl(L, "lower") {
+      gk_neut_species.bcx.lower.type = glua_tbl_get_integer(L, "type", 0);
+    }
+    
+    with_lua_tbl_tbl(L, "upper") {
+      gk_neut_species.bcx.upper.type = glua_tbl_get_integer(L, "type", 0);
+    }
+  }
+
+  with_lua_tbl_tbl(L, "bcy") {
+    with_lua_tbl_tbl(L, "lower") {
+      gk_neut_species.bcy.lower.type = glua_tbl_get_integer(L, "type", 0);
+    }
+
+    with_lua_tbl_tbl(L, "upper") {
+      gk_neut_species.bcy.upper.type = glua_tbl_get_integer(L, "type", 0);
+    }
+  }
+
+  with_lua_tbl_tbl(L, "bcz") {
+    with_lua_tbl_tbl(L, "lower") {
+      gk_neut_species.bcz.lower.type = glua_tbl_get_integer(L, "type", 0);
+    }
+
+    with_lua_tbl_tbl(L, "upper") {
+      gk_neut_species.bcz.upper.type = glua_tbl_get_integer(L, "type", 0);
+    }
+  }
+  
+  enum gkyl_projection_id proj_id = GKYL_PROJ_FUNC;
+
+  bool has_density_init_func = false;
+  int density_init_func_ref = LUA_NOREF;
+
+  bool has_Udrift_init_func = false;
+  int Udrift_init_func_ref = LUA_NOREF;
+
+  bool has_temp_init_func = false;
+  int temp_init_func_ref = LUA_NOREF;
+
+  with_lua_tbl_tbl(L, "projection") {
+    proj_id = glua_tbl_get_integer(L, "projectionID", 0);
+
+    if (glua_tbl_get_func(L, "densityInit")) {
+      density_init_func_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+      has_density_init_func = true;
+    }
+
+    if (glua_tbl_get_func(L, "driftVelocityInit")) {
+      Udrift_init_func_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+      has_Udrift_init_func = true;
+    }
+
+    if (glua_tbl_get_func(L, "temperatureInit")) {
+      temp_init_func_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+      has_temp_init_func = true;
+    }
+  }
+  
+  struct gyrokinetic_neutral_species_lw *gkns_lw = lua_newuserdata(L, sizeof(*gkns_lw));
+  gkns_lw->magic = GYROKINETIC_NEUTRAL_SPECIES_DEFAULT;
+  gkns_lw->gk_neut_species = gk_neut_species;
+
+  gkns_lw->proj_id = proj_id;
+
+  gkns_lw->has_density_init_func = has_density_init_func;
+  gkns_lw->density_init_func_ref = (struct lua_func_ctx) {
+    .func_ref = density_init_func_ref,
+    .ndim = 0, // This will be set later.
+    .nret = 1,
+    .L = L,
+  };
+
+  gkns_lw->has_Udrift_init_func = has_Udrift_init_func;
+  gkns_lw->Udrift_init_func_ref = (struct lua_func_ctx) {
+    .func_ref = Udrift_init_func_ref,
+    .ndim = 0, // This will be set later.
+    .nret = 3,
+    .L = L,
+  };
+
+  gkns_lw->has_temp_init_func = has_temp_init_func;
+  gkns_lw->temp_init_func_ref = (struct lua_func_ctx) {
+    .func_ref = temp_init_func_ref,
+    .ndim = 0, // This will be set later.
+    .nret = 1,
+    .L = L,
+  };
+  
+  // Set metatable.
+  luaL_getmetatable(L, GYROKINETIC_NEUTRAL_SPECIES_METATABLE_NM);
+  lua_setmetatable(L, -2);
+  
+  return 1;
+}
+
+// Species constructor.
+static struct luaL_Reg gk_neutral_species_ctor[] = {
+  { "new", gyrokinetic_neutral_species_lw_new },
   { 0, 0 }
 };
 
@@ -686,6 +941,9 @@ gyrokinetic_field_lw_new(lua_State *L)
 
   gk_field.fem_parbc = glua_tbl_get_integer(L, "femParBc", 0);
   gk_field.kperpSq = glua_tbl_get_number(L, "kPerpSq", 0.0);
+
+  gk_field.zero_init_field = glua_tbl_get_bool(L, "zeroInitField", false);
+  gk_field.is_static = glua_tbl_get_bool(L, "isStatic", false);
 
   with_lua_tbl_tbl(L, "poissonBcs") {
     with_lua_tbl_tbl(L, "lowerType") {
@@ -761,6 +1019,8 @@ struct gyrokinetic_app_lw {
   struct lua_func_ctx mapc2p_ctx; // Function context for mapc2p.
   struct lua_func_ctx bmag_ctx; // Function context for bmag.
 
+  struct lua_func_ctx nonuniform_position_map_ctx[3]; // Function context for nonuniform position maps.
+
   bool has_mapc2p_mapping_func[GKYL_MAX_SPECIES]; // Is there a non-uniform velocity space mapping function?
   struct lua_func_ctx mapc2p_mapping_func_ctx[GKYL_MAX_SPECIES]; // Context for non-uniform velocity space mapping function.
 
@@ -784,7 +1044,7 @@ struct gyrokinetic_app_lw {
   bool has_perp_temp_init_func[GKYL_MAX_SPECIES]; // Is there a perpendicular temperature initialization function?
   struct lua_func_ctx perp_temp_init_func_ctx[GKYL_MAX_SPECIES]; // Context for perpendicular temperature initialization function.
 
-  bool correct_all_moms[GKYL_MAX_SPECIES]; // Are we correcting all moments in projection, or only density?
+  bool proj_correct_all_moms[GKYL_MAX_SPECIES]; // Are we correcting all moments in projection, or only density?
 
   enum gkyl_collision_id collision_id[GKYL_MAX_SPECIES]; // Collision type.
 
@@ -801,10 +1061,10 @@ struct gyrokinetic_app_lw {
   double collision_eps0[GKYL_MAX_SPECIES]; // Vacuum permittivity for calculating collision frequency.
   double collision_eV[GKYL_MAX_SPECIES]; // Elementary charge for calculating collision frequency.
 
-  bool collision_correct_all_moms[GKYL_MAX_SPECIES]; // Are we correcting all moments in collisions, or only density?
-  double collision_iter_eps[GKYL_MAX_SPECIES]; // Error tolerance for moment fixes in collision (density is always exact).
-  int collision_max_iter[GKYL_MAX_SPECIES]; // Maximum number of iterations for moment fixes in collisions.
-  bool collision_use_last_converged[GKYL_MAX_SPECIES]; // Use last iteration value in collisions regardless of convergence?
+  bool correct_all_moms[GKYL_MAX_SPECIES]; // Are we correcting all moments in collisions, or only density?
+  double iter_eps[GKYL_MAX_SPECIES]; // Error tolerance for moment fixes in collision (density is always exact).
+  int max_iter[GKYL_MAX_SPECIES]; // Maximum number of iterations for moment fixes in collisions.
+  bool use_last_converged[GKYL_MAX_SPECIES]; // Use last iteration value in collisions regardless of convergence?
 
   enum gkyl_source_id source_id[GKYL_MAX_SPECIES]; // Source type.
 
@@ -849,6 +1109,33 @@ struct gyrokinetic_app_lw {
   int react_charge_state[GKYL_MAX_SPECIES][GKYL_MAX_REACT]; // Charge state of species in the reaction.
   double react_ion_mass[GKYL_MAX_SPECIES][GKYL_MAX_REACT]; // Mass of ion species in the reaction.
   double react_elc_mass[GKYL_MAX_SPECIES][GKYL_MAX_REACT]; // Mass of electron species in the reaction.
+
+  int num_neut_react[GKYL_MAX_SPECIES]; // Number of neutral reaction types.
+
+  enum gkyl_react_id neut_react_id[GKYL_MAX_SPECIES][GKYL_MAX_REACT]; // What type of neutral reaction (ionization, charge exchange, recombination)?
+  enum gkyl_react_self_type neut_react_type_self[GKYL_MAX_SPECIES][GKYL_MAX_REACT]; // What is the role of the species in this neutral reaction?
+  enum gkyl_ion_type neut_react_ion_id[GKYL_MAX_SPECIES][GKYL_MAX_REACT]; // What type of ion in the neutral reaction?
+
+  char neut_react_elc_nm[GKYL_MAX_SPECIES][GKYL_MAX_REACT][128]; // Name of electron species in the neutral reaction.
+  char neut_react_ion_nm[GKYL_MAX_SPECIES][GKYL_MAX_REACT][128]; // Name of ion species in the neutral reaction.
+  char neut_react_donor_nm[GKYL_MAX_SPECIES][GKYL_MAX_REACT][128]; // Name of donor species in the neutral reaction.
+  char neut_react_recvr_nm[GKYL_MAX_SPECIES][GKYL_MAX_REACT][128]; // Name of receiver species in the neutral reaction.
+  char neut_react_partner_nm[GKYL_MAX_SPECIES][GKYL_MAX_REACT][128]; // Name of partner species in the neutral reaction.,
+
+  int neut_react_charge_state[GKYL_MAX_SPECIES][GKYL_MAX_REACT]; // Charge state of species in the neutral reaction.
+  double neut_react_ion_mass[GKYL_MAX_SPECIES][GKYL_MAX_REACT]; // Mass of ion species in the neutral reaction.
+  double neut_react_elc_mass[GKYL_MAX_SPECIES][GKYL_MAX_REACT]; // Mass of electron species in the neutral reaction.
+
+  enum gkyl_projection_id neut_proj_id[GKYL_MAX_SPECIES]; // Neutral projection type.
+
+  bool neut_has_density_init_func[GKYL_MAX_SPECIES]; // Is there a neutral density initialization function?
+  struct lua_func_ctx neut_density_init_func_ctx[GKYL_MAX_SPECIES]; // Context for neutral density initialization function.
+
+  bool neut_has_Udrift_init_func[GKYL_MAX_SPECIES]; // Is there a neutral drift velocity initialization function?
+  struct lua_func_ctx neut_Udrift_init_func_ctx[GKYL_MAX_SPECIES]; // Context for neutral drift velocity initialziation function.
+  
+  bool neut_has_temp_init_func[GKYL_MAX_SPECIES]; // Is there a neutral temperature initialization function?
+  struct lua_func_ctx neut_temp_init_func_ctx[GKYL_MAX_SPECIES]; // Context for neutral temperature initialization function.
   
   double t_start, t_end; // Start and end times of simulation.
   int num_frames; // Number of data frames to write.
@@ -940,6 +1227,56 @@ species_compare_func(const void *a, const void *b)
   const struct gyrokinetic_species_lw *const *spa = a;
   const struct gyrokinetic_species_lw *const *spb = b;
   return strcmp((*spa)->gk_species.name, (*spb)->gk_species.name);
+}
+
+// Gets all neutral species objects from the App table, which must on top of
+// the stack. The number of neutral species is returned and the appropriate
+// pointers set in the neutral species pointer array.
+static int
+get_neutral_species_inp(lua_State *L, int cdim, struct gyrokinetic_neutral_species_lw *neut_species[GKYL_MAX_SPECIES])
+{
+  enum { TKEY = -2, TVAL = -1 };
+  
+  int curr = 0;
+  lua_pushnil(L); // Initial key is nil.
+  while (lua_next(L, TKEY) != 0) {
+    // Key at TKEY and value at TVAL.
+    if (lua_type(L, TVAL) == LUA_TUSERDATA) {
+      struct gyrokinetic_neutral_species_lw *gkns = lua_touserdata(L, TVAL);
+
+      if (gkns->magic == GYROKINETIC_NEUTRAL_SPECIES_DEFAULT) {
+        if (gkns->has_density_init_func) {
+          gkns->density_init_func_ref.ndim = cdim;
+        }
+        
+        if (gkns->has_Udrift_init_func) {
+          gkns->Udrift_init_func_ref.ndim = cdim;
+        }
+
+        if (gkns->has_temp_init_func) {
+          gkns->temp_init_func_ref.ndim = cdim;
+        }
+        
+        if (lua_type(L,TKEY) == LUA_TSTRING) {
+          const char *key = lua_tolstring(L, TKEY, 0);
+          strcpy(gkns->gk_neut_species.name, key);
+        }
+        neut_species[curr++] = gkns;
+      }
+    }
+    lua_pop(L, 1);
+  }
+
+  return curr;
+}
+
+// Comparison method to sort neutral species array by neutral species name.
+static int
+neutral_species_compare_func(const void *a, const void *b)
+{
+  const struct gyrokinetic_neutral_species_lw *const *spa = a;
+  const struct gyrokinetic_neutral_species_lw *const *spb = b;
+  return strcmp((*spa)->gk_neut_species.name, (*spb)->gk_neut_species.name);
 }
 
 static struct gkyl_tool_args *
@@ -1156,6 +1493,39 @@ gk_app_new(lua_State *L)
       bmag_func_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     }
 
+    with_lua_tbl_tbl(L, "positionMap") {
+      gk.geometry.position_map_info.id = glua_tbl_get_integer(L, "ID", 0);
+      bool has_nonuniform_position_map[3];
+      int nonuniform_position_map_ref[3];
+
+      with_lua_tbl_tbl(L, "maps") {
+        for (int i = 0; i < 3; i++) {
+          gk.geometry.position_map_info.ctxs[i] = 0;
+          gk.geometry.position_map_info.maps[i] = 0;
+
+          has_nonuniform_position_map[i] = false;
+          nonuniform_position_map_ref[i] = LUA_NOREF;
+          if (glua_tbl_iget_func(L, i + 1)) {
+            has_nonuniform_position_map[i] = true;
+            nonuniform_position_map_ref[i] = luaL_ref(L, LUA_REGISTRYINDEX);
+          }
+        }
+      }
+
+      for (int i = 0; i < 3; i++) {
+        if (has_nonuniform_position_map[i]) {
+          app_lw->nonuniform_position_map_ctx[i] = (struct lua_func_ctx) {
+            .func_ref = nonuniform_position_map_ref[i],
+            .ndim = 1,
+            .nret = 1,
+            .L = L,
+          };
+          gk.geometry.position_map_info.maps[i] = gkyl_lw_eval_cb;
+          gk.geometry.position_map_info.ctxs[i] = &app_lw->nonuniform_position_map_ctx[i];
+        }
+      }
+    }
+
     if (has_mapc2p) {
       app_lw->mapc2p_ctx = (struct lua_func_ctx) {
         .func_ref = mapc2p_ref,
@@ -1216,7 +1586,7 @@ gk_app_new(lua_State *L)
     app_lw->has_perp_temp_init_func[s] = species[s]->has_perp_temp_init_func;
     app_lw->perp_temp_init_func_ctx[s] = species[s]->perp_temp_init_func_ref;
 
-    app_lw->correct_all_moms[s] = species[s]->correct_all_moms;
+    app_lw->proj_correct_all_moms[s] = species[s]->proj_correct_all_moms;
 
     if (species[s]->has_mapc2p_mapping_func) {
       gk.species[s].mapc2p.mapping = gkyl_lw_eval_cb;
@@ -1255,7 +1625,17 @@ gk_app_new(lua_State *L)
       gk.species[s].projection.ctx_tempperp = &app_lw->perp_temp_init_func_ctx[s];
     }
 
-    gk.species[s].projection.correct_all_moms = app_lw->correct_all_moms[s];
+    gk.species[s].projection.correct_all_moms = app_lw->proj_correct_all_moms[s];
+
+    app_lw->correct_all_moms[s] = species[s]->correct_all_moms;
+    app_lw->iter_eps[s] = species[s]->iter_eps;
+    app_lw->max_iter[s] = species[s]->max_iter;
+    app_lw->use_last_converged[s] = species[s]->use_last_converged;
+
+    gk.species[s].correct.correct_all_moms = app_lw->correct_all_moms[s];
+    gk.species[s].correct.iter_eps = app_lw->iter_eps[s];
+    gk.species[s].correct.max_iter = app_lw->max_iter[s];
+    gk.species[s].correct.use_last_converged = app_lw->use_last_converged[s];
 
     app_lw->collision_id[s] = species[s]->collision_id;
 
@@ -1273,11 +1653,6 @@ gk_app_new(lua_State *L)
     app_lw->collision_hbar[s] = species[s]->collision_hbar;
     app_lw->collision_eps0[s] = species[s]->collision_eps0;
     app_lw->collision_eV[s] = species[s]->collision_eV;
-
-    app_lw->collision_correct_all_moms[s] = species[s]->collision_correct_all_moms;
-    app_lw->collision_iter_eps[s] = species[s]->collision_iter_eps;
-    app_lw->collision_max_iter[s] = species[s]->collision_max_iter;
-    app_lw->collision_use_last_converged[s] = species[s]->collision_use_last_converged;
 
     gk.species[s].collisions.collision_id = app_lw->collision_id[s];
 
@@ -1297,11 +1672,6 @@ gk_app_new(lua_State *L)
     gk.species[s].collisions.hbar = app_lw->collision_hbar[s];
     gk.species[s].collisions.eps0 = app_lw->collision_eps0[s];
     gk.species[s].collisions.eV = app_lw->collision_eV[s];
-
-    gk.species[s].collisions.correct_all_moms = app_lw->collision_correct_all_moms[s];
-    gk.species[s].collisions.iter_eps = app_lw->collision_iter_eps[s];
-    gk.species[s].collisions.max_iter = app_lw->collision_max_iter[s];
-    gk.species[s].collisions.use_last_converged = app_lw->collision_use_last_converged[s];
 
     app_lw->source_id[s] = species[s]->source_id;
 
@@ -1410,10 +1780,85 @@ gk_app_new(lua_State *L)
       gk.species[s].react.react_type[i].ion_mass = app_lw->react_ion_mass[s][i];
       gk.species[s].react.react_type[i].elc_mass = app_lw->react_elc_mass[s][i];
     }
+
+    app_lw->num_neut_react[s] = species[s]->num_neut_react;
+
+    for (int i = 0; i < app_lw->num_neut_react[s]; i++) {
+      app_lw->neut_react_id[s][i] = species[s]->neut_react_id[i];
+      app_lw->neut_react_type_self[s][i] = species[s]->neut_react_type_self[i];
+      app_lw->neut_react_ion_id[s][i] = species[s]->neut_react_ion_id[i];
+
+      strcpy(app_lw->neut_react_elc_nm[s][i], species[s]->neut_react_elc_nm[i]);
+      strcpy(app_lw->neut_react_ion_nm[s][i], species[s]->neut_react_ion_nm[i]);
+      strcpy(app_lw->neut_react_donor_nm[s][i], species[s]->neut_react_donor_nm[i]);
+      strcpy(app_lw->neut_react_recvr_nm[s][i], species[s]->neut_react_recvr_nm[i]);
+      strcpy(app_lw->neut_react_partner_nm[s][i], species[s]->neut_react_partner_nm[i]);
+
+      app_lw->neut_react_charge_state[s][i] = species[s]->neut_react_charge_state[i];
+      app_lw->neut_react_ion_mass[s][i] = species[s]->neut_react_ion_mass[i];
+      app_lw->neut_react_elc_mass[s][i] = species[s]->neut_react_elc_mass[i];
+    }
+
+    gk.species[s].react_neut.num_react = app_lw->num_neut_react[s];
+
+    for (int i = 0; i < app_lw->num_neut_react[s]; i++) {
+      gk.species[s].react_neut.react_type[i].react_id = app_lw->neut_react_id[s][i];
+      gk.species[s].react_neut.react_type[i].type_self = app_lw->neut_react_type_self[s][i];
+      gk.species[s].react_neut.react_type[i].ion_id = app_lw->neut_react_ion_id[s][i];
+
+      strcpy(gk.species[s].react_neut.react_type[i].elc_nm, app_lw->neut_react_elc_nm[s][i]);
+      strcpy(gk.species[s].react_neut.react_type[i].ion_nm, app_lw->neut_react_ion_nm[s][i]);
+      strcpy(gk.species[s].react_neut.react_type[i].recvr_nm, app_lw->neut_react_recvr_nm[s][i]);
+      strcpy(gk.species[s].react_neut.react_type[i].donor_nm, app_lw->neut_react_donor_nm[s][i]);
+      strcpy(gk.species[s].react_neut.react_type[i].partner_nm, app_lw->neut_react_partner_nm[s][i]);
+
+      gk.species[s].react_neut.react_type[i].charge_state = app_lw->neut_react_charge_state[s][i];
+      gk.species[s].react_neut.react_type[i].ion_mass = app_lw->neut_react_ion_mass[s][i];
+      gk.species[s].react_neut.react_type[i].elc_mass = app_lw->neut_react_elc_mass[s][i];
+    }
   }
 
-  // Set field input.
-  gk.skip_field = glua_tbl_get_bool(L, "skipField", false);
+  struct gyrokinetic_neutral_species_lw *neut_species[GKYL_MAX_SPECIES];
+
+  // Set all neutral species input.
+  gk.num_neut_species = get_neutral_species_inp(L, cdim, neut_species);
+
+  // need to sort the neut_species[] array by name of the neutral species before
+  // proceeding as there is no way to ensure that all cores loop over
+  // Lua tables in the same order
+  qsort(neut_species, gk.num_neut_species, sizeof(struct gyrokinetic_neutral_species_lw *), neutral_species_compare_func);
+  
+  for (int s = 0; s < gk.num_neut_species; s++) {
+    gk.neut_species[s] = neut_species[s]->gk_neut_species;
+
+    app_lw->neut_proj_id[s] = neut_species[s]->proj_id;
+
+    app_lw->neut_has_density_init_func[s] = neut_species[s]->has_density_init_func;
+    app_lw->neut_density_init_func_ctx[s] = neut_species[s]->density_init_func_ref;
+
+    app_lw->neut_has_Udrift_init_func[s] = neut_species[s]->has_Udrift_init_func;
+    app_lw->neut_Udrift_init_func_ctx[s] = neut_species[s]->Udrift_init_func_ref;
+    
+    app_lw->neut_has_temp_init_func[s] = neut_species[s]->has_temp_init_func;
+    app_lw->neut_temp_init_func_ctx[s] = neut_species[s]->temp_init_func_ref;
+
+    gk.neut_species[s].projection.proj_id = app_lw->neut_proj_id[s];
+
+    if (neut_species[s]->has_density_init_func) {
+      gk.neut_species[s].projection.density = gkyl_lw_eval_cb;
+      gk.neut_species[s].projection.ctx_density = &app_lw->neut_density_init_func_ctx[s];
+    }
+
+    if (neut_species[s]->has_Udrift_init_func) {
+      gk.neut_species[s].projection.udrift = gkyl_lw_eval_cb;
+      gk.neut_species[s].projection.ctx_udrift = &app_lw->neut_Udrift_init_func_ctx[s];
+    }
+
+    if (neut_species[s]->has_temp_init_func) {
+      gk.neut_species[s].projection.temp = gkyl_lw_eval_cb;
+      gk.neut_species[s].projection.ctx_temp = &app_lw->neut_temp_init_func_ctx[s];
+    }
+  }
 
   with_lua_tbl_key(L, "field") {
     if (lua_type(L, -1) == LUA_TUSERDATA) {
@@ -1939,14 +2384,59 @@ gk_app_run(lua_State *L)
     gkyl_gyrokinetic_app_cout(app, stdout, "  Min rel dt diff for RK stage-2 failures %g\n", stat.stage_2_dt_diff[0]);
   }  
   gkyl_gyrokinetic_app_cout(app, stdout, "Number of RK stage-3 failures %ld\n", stat.nstage_3_fail);
-  gkyl_gyrokinetic_app_cout(app, stdout, "Species RHS calc took %g secs\n", stat.species_rhs_tm);
-  gkyl_gyrokinetic_app_cout(app, stdout, "Species collisions RHS calc took %g secs\n", stat.species_coll_tm);
-  gkyl_gyrokinetic_app_cout(app, stdout, "Field RHS calc took %g secs\n", stat.field_rhs_tm);
-  gkyl_gyrokinetic_app_cout(app, stdout, "Species collisional moments took %g secs\n", stat.species_coll_mom_tm);
-  gkyl_gyrokinetic_app_cout(app, stdout, "Total updates took %g secs\n", stat.total_tm);
+  // Plasma species timers. 
+  gkyl_gyrokinetic_app_cout(app, stdout, "Species initial conditions took %lg secs\n", stat.init_species_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Species RHS calc took %lg secs\n", stat.species_rhs_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Species LTE computation, including corrections, took %lg secs\n", stat.species_lte_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Species collisional moments took %lg secs\n", stat.species_coll_mom_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Species collisions RHS calc took %lg secs\n", stat.species_coll_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Species radiation moments took %lg secs\n", stat.species_rad_mom_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Species radiation RHS calc took %lg secs\n", stat.species_rad_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Species reaction moments took %lg secs\n", stat.species_react_mom_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Species reaction RHS calc took %lg secs\n", stat.species_react_tm);
 
-  gkyl_gyrokinetic_app_cout(app, stdout, "Number of write calls %ld\n", stat.nio);
-  gkyl_gyrokinetic_app_cout(app, stdout, "IO time took %g secs \n", stat.io_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Species BCs, including parallel communication, took %lg secs\n", stat.species_bc_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Number of species CFL reduction calls %ld\n", stat.n_species_omega_cfl);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Reducing species CFL took %lg secs\n", stat.species_omega_cfl_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Number of moment updater calls %ld\n", stat.n_mom);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Number of diagnostics computed %ld\n", stat.n_diag);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Computing diagnostics too %lg secs\n", stat.diag_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Number of write calls for phase space fields %ld\n", stat.n_io);
+  gkyl_gyrokinetic_app_cout(app, stdout, "IO time for phase space fields took %lg secs \n", stat.io_tm);
+  gkyl_gyrokinetic_app_cout(app, stdout, "Number of write calls for configuration space fields %ld\n", stat.n_diag_io);
+  gkyl_gyrokinetic_app_cout(app, stdout, "IO time for configuration space fields took %lg secs \n", stat.diag_io_tm);
+  // Neutral species timers. 
+  if (app->num_neut_species > 0) {
+    gkyl_gyrokinetic_app_cout(app, stdout, "Neutral species initial conditions took %lg secs\n", stat.init_neut_species_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Neutral species RHS calc took %lg secs\n", stat.neut_species_rhs_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Neutral species LTE computation, including corrections, took %lg secs\n", stat.neut_species_lte_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Neutral species collisional moments took %lg secs\n", stat.neut_species_coll_mom_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Neutral species collisions RHS calc took %lg secs\n", stat.neut_species_coll_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Neutral species reaction moments took %lg secs\n", stat.neut_species_react_mom_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Neutral species reaction RHS calc took %lg secs\n", stat.neut_species_react_tm);
+  
+    gkyl_gyrokinetic_app_cout(app, stdout, "Neutral species BCs, including parallel communication, took %lg secs\n", stat.neut_species_bc_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Number of neutral species CFL reduction calls %ld\n", stat.n_neut_species_omega_cfl);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Reducing neutral species CFL took %lg secs\n", stat.neut_species_omega_cfl_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Number of neutral moment updater calls %ld\n", stat.n_neut_mom);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Number of neutral diagnostics computed %ld\n", stat.n_neut_diag);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Computing neutral diagnostics too %lg secs\n", stat.neut_diag_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Number of write calls for neutrals' phase space fields %ld\n", stat.n_neut_io);
+    gkyl_gyrokinetic_app_cout(app, stdout, "IO time for neutrals' phase space fields took %lg secs \n", stat.neut_io_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Number of write calls for neutrals' configuration space fields %ld\n", stat.n_neut_diag_io);
+    gkyl_gyrokinetic_app_cout(app, stdout, "IO time for neutrals' configuration space fields took %lg secs \n", stat.neut_diag_io_tm);    
+  }
+  // Field timers. 
+  if (app->field->update_field > 0) {
+    gkyl_gyrokinetic_app_cout(app, stdout, "Field RHS calc took %g secs\n", stat.field_rhs_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Number of field diagnostics computed %ld\n", stat.n_diag);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Computing field diagnostics too %lg secs\n", stat.diag_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Number of write calls for fields %ld\n", stat.n_field_io);
+    gkyl_gyrokinetic_app_cout(app, stdout, "IO time for fields took %lg secs \n", stat.field_io_tm);
+    gkyl_gyrokinetic_app_cout(app, stdout, "Number of write calls for fields' diagnostics %ld\n", stat.n_field_diag_io);
+    gkyl_gyrokinetic_app_cout(app, stdout, "IO time for fields' diagonstics took %lg secs \n", stat.field_diag_io_tm);
+  }
+  gkyl_gyrokinetic_app_cout(app, stdout, "Total updates took %g secs\n", stat.total_tm);
 
 freeresources:
 
@@ -2014,6 +2504,13 @@ app_openlibs(lua_State *L)
   do {
     luaL_newmetatable(L, GYROKINETIC_SPECIES_METATABLE_NM);
     luaL_register(L, "G0.Gyrokinetic.Species", gk_species_ctor);
+  }
+  while (0);
+
+  // Register Neutral Species input struct.
+  do {
+    luaL_newmetatable(L, GYROKINETIC_NEUTRAL_SPECIES_METATABLE_NM);
+    luaL_register(L, "G0.Gyrokinetic.NeutralSpecies", gk_neutral_species_ctor);
   }
   while (0);
 
